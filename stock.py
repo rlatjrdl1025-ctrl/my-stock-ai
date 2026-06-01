@@ -157,7 +157,7 @@ else:
             raw_data = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(raw_data) < 30:
-                st.error("데이터가 부족합니다. 코드를 확인해 주세요. (예: 삼성전자는 005930.KS / 테슬라는 TSLA)")
+                st.error("데이터가 부족합니다. 코드를 확인해 주세요. (예: 삼성전자는 005930.KS / 테슬자는 TSLA)")
             else:
                 raw_data = raw_data.copy()
                 if isinstance(raw_data.index, pd.MultiIndex):
@@ -216,28 +216,13 @@ else:
                 
                 with col2:
                     st.subheader(f"📈 {stock_display_name} [{chart_period}] 흐름")
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    ax.plot(data['Close'].index, data['Close'].values, label='Price', color='blue', linewidth=2)
-                    ax.plot(data['MA5'].index, data['MA5'].values, label='5-Period Line', color='green', linestyle=':')
-                    ax.plot(data['MA20'].index, data['MA20'].values, label='20-Period Line', color='orange', linestyle='--')
-                    ax.legend()
-                    ax.grid(True, alpha=0.3)
-                    st.pyplot(fig)
                     
-    with tab2:
-        st.subheader(f"📰 {stock_display_name} 관련 실시간 뉴스 핵심 요약 (한글 번역)")
-        with st.spinner("시장 뉴스를 수집하고 실시간 한글로 번역하는 중입니다..."):
-            news_data = get_stock_news_light(my_stock)
-            
-            if not news_data:
-                st.warning("현재 최신 글로벌 뉴스가 수집되지 않았습니다.")
-            else:
-                for news in news_data:
-                    with st.container():
-                        ko_title = translate_to_korean(news['title'])
-                        ko_summary = translate_to_korean(news['summary'])
-                        
-                        st.markdown(f"### [{news['status']}] [{ko_title}]({news['link']})")
-                        st.success(f"💬 **실시간 한글 요약본:** {ko_summary}")
-                        st.caption(f"🔗 *제공처:* {news['publisher']} (원문 제목: {news['title']})")
-                        st.markdown("---")
+                    # 🌟 [차트 절대 안 깨지는 안전 시각화 기법 적용]
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    
+                    # 날짜 인덱스를 문자열 배열로 강제 변환하여 전달 (깨짐 완전 방지)
+                    plot_dates = data.index.strftime('%Y-%m-%d').tolist()
+                    
+                    ax.plot(plot_dates, data['Close'].values, label='Price', color='blue', linewidth=2)
+                    ax.plot(plot_dates, data['MA5'].values, label='5-Period Line', color='green', linestyle=':')
+                    ax.plot(plot_dates, data
