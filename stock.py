@@ -10,7 +10,7 @@ import urllib.parse
 import requests
 import os
 
-# --- 🌐 백엔드 실시간 한글 번역 엔진 ---
+# --- 🌐 실시간 한글 번역 엔진 ---
 def translate_text(text, target_lang="en"):
     if not text:
         return ""
@@ -35,15 +35,17 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🔍 [검색 엔진 완벽 복구] 한글 이름/코드 무제한 자율 추적 기능 ---
+# --- 🔍 [검색 기능 원상복구] 국장/해외 주식 100% 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
     search_keyword = search_keyword.strip().upper()
     if not search_keyword:
         return "005930.KS"
         
+    # 숫자 6자리만 쳤을 때 국장 코드로 자동 인식
     if search_keyword.isdigit() and len(search_keyword) == 6:
         return search_keyword + '.KS'
         
+    # 이미 완전한 티커 형태일 때 바로 반환
     if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
         return search_keyword
         
@@ -54,9 +56,9 @@ def search_ticker_by_name(search_keyword):
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
-            data = res.json()
-            quotes = data.get('quotes', [])
+            quotes = res.json().get('quotes', [])
             if quotes:
+                # 한글 검색 시 한국 마켓 우선 락온
                 for q in quotes:
                     symbol = q.get('symbol', '')
                     if symbol.endswith('.KS') or symbol.endswith('.KQ'):
@@ -110,8 +112,7 @@ def save_prediction(ticker, name, pred_text, current_price):
         try:
             df = pd.read_csv(HISTORY_FILE)
             if not ((df['예측일자'] == today_str) & (df['종목코드'] == ticker)).any():
-                df = pd.concat([df, new_data], ignore_index=True)
-                df.to_csv(HISTORY_FILE, index=False)
+                pd.concat([df, new_data], ignore_index=True).to_csv(HISTORY_FILE, index=False)
         except:
             new_data.to_csv(HISTORY_FILE, index=False)
     else:
@@ -127,12 +128,10 @@ def update_prediction_results():
             if row['적중여부'] == "⏳ 대기":
                 ticker = row['종목코드']
                 pred_date = row['예측일자']
-                
                 chk_start = datetime.strptime(pred_date, '%Y-%m-%d') + timedelta(days=1)
-                chk_end = datetime.today() + timedelta(days=1)
                 
                 if chk_start <= datetime.today():
-                    stock_df = yf.download(ticker, start=chk_start.strftime('%Y-%m-%d'), end=chk_end.strftime('%Y-%m-%d'), progress=False)
+                    stock_df = yf.download(ticker, start=chk_start.strftime('%Y-%m-%d'), end=(datetime.today() + timedelta(days=1)).strftime('%Y-%m-%d'), progress=False)
                     if len(stock_df) > 0:
                         stock_df.columns = stock_df.columns.get_level_values(0)
                         next_close = float(stock_df['Close'].iloc[0])
@@ -149,7 +148,7 @@ def update_prediction_results():
     except:
         return pd.DataFrame()
 
-# --- 🖥️ 대시보드 세팅 ---
+# --- 🖥️ 대시보드 메인 설정 ---
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
@@ -160,11 +159,11 @@ if "input_query" not in st.session_state: st.session_state.input_query = "삼성
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# 종목 입력창
-search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력 (국내/해외 모두 지원)", value=st.session_state.input_query).strip()
+# 자율 입력창
+search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력 (국내/해외 무제한)", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
-with st.spinner("AI 실시간 검색 엔진 구동 중..."):
+with st.spinner("AI 실시간 엔진이 종목 찾는 중..."):
     my_stock = search_ticker_by_name(search_input)
 
 raw_stock_name = get_exact_stock_name(my_stock)
@@ -207,20 +206,19 @@ if run_button and my_stock:
     st.rerun()
 
 is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
+currency_symbol = "₩" if is_korean_stock else "$"
 
-# --- 🚀 메인 작동부 ---
+# --- 🚀 구동 제어부 ---
 if my_stock:
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
     with tab1:
-        with st.spinner("데이터 수집 및 인공지능 학습 중..."):
-            end_date = datetime.today().strftime('%Y-%m-%d')
-            start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
-            df_raw = yf.download(my_stock, start=start_date, end=end_date)
-            
-            if len(df_raw) < 20:
-                st.error("종목 데이터를 가져오지 못했습니다. 한글 이름이나 티커 코드가 정확한지 확인해 주세요.")
-            else:
+        end_date = datetime.today().strftime('%Y-%m-%d')
+        start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
+        
+        try:
+            df_raw = yf.download(my_stock, start=start_date, end=end_date, progress=False)
+            if len(df_raw) >= 20:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
                 df_flat.index = pd.to_datetime(df_flat.index)
@@ -263,37 +261,39 @@ if my_stock:
                         else: st.error(f"🔴 **이동평균선:** 역배열 데드크로스 압력이 있습니다. (현재가: {fmt_close})")
                     
                     with col2:
-                        # 🌟 [요구사항 반영] 가독성 극대화 통합 면적(Area) 차트 빌드 🌟
+                        # 🌟 [가독성 통합 개편] 뭉개짐 없는 완벽한 면적(Area) 차트 🌟
                         if is_korean_stock:
                             st.subheader(f"📈 {current_stock_name} 주가 추이 그래프 (단위: ₩)")
                             chart_df = pd.DataFrame({
-                                '현재가(원)': np.round(processed_df['Close']),
+                                '현재가': np.round(processed_df['Close']),
                                 '5일 이동평균선': np.round(processed_df['MA5']),
                                 '20일 이동평균선': np.round(processed_df['MA20'])
                             }, index=processed_df.index.strftime('%Y-%m-%d'))
-                            st.area_chart(chart_df) # 소수점 없는 깔끔한 ₩ 면적 차트
+                            st.area_chart(chart_df) # 소수점 없는 깔끔한 국장 전용 면적 차트
                             st.markdown(f"""> **💰 국내 자산 정산 안내:** 현재 종가는 **₩{latest_close:,.0f}** 입니다.""")
                         else:
                             ex_rate = get_current_usd_krw()
                             st.subheader(f"📈 {current_stock_name} 글로벌 주가 추이 그래프 (단위: $)")
                             
-                            # 차트를 2개로 쪼개지 않고 오직 1개로 통합 빌드!
+                            # 그래프 배율을 망가뜨리지 않는 단일 달러 면적 차트 구성
                             chart_df_usd = pd.DataFrame({
-                                '현재가(달러)': np.round(processed_df['Close'], 2),
+                                '현재가': np.round(processed_df['Close'], 2),
                                 '5일선': np.round(processed_df['MA5'], 2),
                                 '20일선': np.round(processed_df['MA20'], 2)
                             }, index=processed_df.index.strftime('%Y-%m-%d'))
                             st.area_chart(chart_df_usd)
                             
-                            # 그래프 바로 밑에 툴팁처럼 정확하게 계산된 달러값과 원화값을 세트로 분리 표기
+                            # 차트 바로 밑에 달러 시세와 실시간 고시환율이 녹아든 원화 환산 가격을 명확히 세트로 표기!
                             st.markdown(f"""
                             > **💱 실시간 달러 시세 및 원화 환산 통합 리포트**
                             > * **현재 달러 종가:** **${latest_close:,.2f}**
                             > * **현재 적용 환율:** 1달러($) = **{ex_rate:,.2f}원**
                             > * **🔥 최종 원화 환산 가격:** 약 **₩{latest_close * ex_rate:,.0f}**
                             """)
-                else: st.warning("데이터가 부족합니다.")
-        except: st.error("해당 종목의 마켓 데이터를 가져오는 데 실패했습니다.")
+                else:
+                    st.warning("데이터가 부족합니다.")
+        except:
+            st.error("해당 종목의 마켓 데이터를 가져오는 데 실패했습니다.")
                     
     with tab2:
         st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드")
