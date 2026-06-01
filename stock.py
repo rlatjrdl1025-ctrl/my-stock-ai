@@ -156,8 +156,12 @@ st.sidebar.header("⚙️ 분석 설정")
 
 # 1. 기업 이름 검색 입력창
 search_input = st.sidebar.text_input("1. 검색할 기업 이름 입력", value=st.session_state.search_term).strip()
+
+# 🌟 [오류 완전 수정] 검색어가 바뀌면 과거 라디오 버튼 세션을 강제로 초기화하여 즉각 리스트가 갱신되도록 제어
 if search_input != st.session_state.search_term:
     st.session_state.search_term = search_input
+    if "radio_selected" in st.session_state:
+        del st.session_state["radio_selected"]
     st.rerun()
 
 # 연관 종목 리스트 수집
@@ -169,9 +173,17 @@ if related_stocks:
     st.sidebar.markdown("🔍 **연관 검색 결과 목록**")
     options_format = [f"{s['shortname']} ({s['symbol']})" for s in related_stocks]
     
-    selected_option = st.sidebar.radio("원하시는 종목을 누르면 즉시 차트가 나옵니다:", options_format)
+    # 세션 상태 지정을 통해 검색어 변경 시 라디오 버튼이 첫 번째 항목으로 강제 리셋되도록 연결
+    if "radio_selected" not in st.session_state:
+        st.session_state["radio_selected"] = options_format[0]
+        
+    selected_option = st.sidebar.radio(
+        "원하시는 종목을 누르면 즉시 차트가 나옵니다:", 
+        options_format, 
+        key="radio_widget"
+    )
     selected_ticker = selected_option.split("(")[-1].replace(")", "").strip()
-    fallback_name = selected_option.split(" (")[0].strip() # 🌟 번역 실패를 대비한 1차 예비 이름 추출
+    fallback_name = selected_option.split(" (")[0].strip()
 else:
     st.sidebar.warning("연관된 종목이 없습니다. 다시 입력해 주세요.")
     selected_ticker = "005930.KS"
@@ -198,6 +210,8 @@ st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 for code, name in st.session_state.favorites_dict.items():
     if st.sidebar.button(f"📌 {name} ({code})", key=f"fav_{code}", use_container_width=True):
         st.session_state.search_term = name
+        if "radio_selected" in st.session_state:
+            del st.session_state["radio_selected"]
         st.rerun()
 
 # --- 🚀 메인 프레임워크 구동부 ---
@@ -212,7 +226,6 @@ if selected_ticker:
     except:
         pass
 
-    # 🌟 [오류 완전 수정] 외부 번역기가 빈 값을 뱉어도 fallback_name이나 원본 이름이 강제로 들어가 누락 원천 차단
     raw_stock_name = info_data.get('longName') or info_data.get('shortName') or fallback_name
     translated_name = translate_text(raw_stock_name, target_lang="ko")
     current_stock_name = translated_name if (translated_name and translated_name.strip()) else fallback_name
