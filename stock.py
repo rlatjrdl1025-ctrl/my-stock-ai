@@ -225,4 +225,33 @@ else:
                     
                     ax.plot(plot_dates, data['Close'].values, label='Price', color='blue', linewidth=2)
                     ax.plot(plot_dates, data['MA5'].values, label='5-Period Line', color='green', linestyle=':')
-                    ax.plot(plot_dates, data
+                    ax.plot(plot_dates, data['MA20'].values, label='20-Period Line', color='orange', linestyle='--')
+                    
+                    # 가로축 날짜가 너무 겹치지 않게 조절
+                    if len(plot_dates) > 10:
+                        ax.set_xticks(plot_dates[::max(1, len(plot_dates)//7)])
+                    else:
+                        ax.set_xticks(plot_dates)
+                        
+                    plt.xticks(rotation=30)
+                    ax.legend()
+                    ax.grid(True, alpha=0.3)
+                    st.pyplot(fig)
+                    
+    with tab2:
+        st.subheader(f"📰 {stock_display_name} 관련 실시간 뉴스 핵심 요약 (한글 번역)")
+        with st.spinner("시장 뉴스를 수집하고 실시간 한글로 번역하는 중입니다..."):
+            news_data = get_stock_news_light(my_stock)
+            
+            if not news_data:
+                st.warning("현재 최신 글로벌 뉴스가 수집되지 않았습니다.")
+            else:
+                for news in news_data:
+                    with st.container():
+                        ko_title = translate_to_korean(news['title'])
+                        ko_summary = translate_to_korean(news['summary'])
+                        
+                        st.markdown(f"### [{news['status']}] [{ko_title}]({news['link']})")
+                        st.success(f"💬 **실시간 한글 요약본:** {ko_summary}")
+                        st.caption(f"🔗 *제공처:* {news['publisher']} (원문 제목: {news['title']})")
+                        st.markdown("---")
