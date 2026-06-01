@@ -60,7 +60,7 @@ def get_related_stock_list(search_keyword):
         pass
     return stock_options
 
-# --- 🏛️ 국가 및 상장 마켓(코스피, 코스닥, 나스닥, S&P500) 정밀 분류기 ---
+# --- 🏛️ 국가 및 상장 마켓 정밀 분류기 ---
 def detect_market_info(ticker_symbol, info_data):
     ticker_symbol = ticker_symbol.upper()
     if ticker_symbol.endswith('.KS'):
@@ -144,82 +144,71 @@ def update_prediction_results():
     except:
         return pd.DataFrame()
 
-# --- 🖥️ Streamlit 설정 및 변수 꼬임 방지 ---
+# --- 🖥️ Streamlit 설정 및 변수 초기화 ---
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
 if "favorites_dict" not in st.session_state: st.session_state.favorites_dict = {"005930.KS": "삼성전자", "TSLA": "테슬라", "NVDA": "엔비디아"}
-if "history" not in st.session_state: st.session_state.history = []
 if "search_term" not in st.session_state: st.session_state.search_term = "삼성"
+# 🌟 메인 화면 연동을 위한 선택된 종목 세션 제어
+if "selected_ticker" not in st.session_state: st.session_state.selected_ticker = "005930.KS"
+if "fallback_name" not in st.session_state: st.session_state.fallback_name = "삼성전자"
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# 1. 기업 이름 검색 입력창
-search_input = st.sidebar.text_input("1. 검색할 기업 이름 입력", value=st.session_state.search_term).strip()
+# 1. 기업 이름 검색 입력창 (사이드바에는 오직 검색창과 설정만 존재)
+search_input = st.sidebar.text_input("🔍 검색할 기업 이름 입력", value=st.session_state.search_term).strip()
 
-# 🌟 [오류 완전 수정] 검색어가 바뀌면 과거 라디오 버튼 세션을 강제로 초기화하여 즉각 리스트가 갱신되도록 제어
 if search_input != st.session_state.search_term:
     st.session_state.search_term = search_input
-    if "radio_selected" in st.session_state:
-        del st.session_state["radio_selected"]
+    # 검색어가 바뀌면 연관 종목 리스트의 첫 번째 항목으로 자동 타겟팅하여 갱신 안 되는 버그 원천 차단
+    related = get_related_stock_list(search_input)
+    if related:
+        st.session_state.selected_ticker = related[0]['symbol']
+        st.session_state.fallback_name = related[0]['shortname']
     st.rerun()
-
-# 연관 종목 리스트 수집
-related_stocks = get_related_stock_list(st.session_state.search_term)
-
-selected_ticker = None
-fallback_name = "주식 종목"
-if related_stocks:
-    st.sidebar.markdown("🔍 **연관 검색 결과 목록**")
-    options_format = [f"{s['shortname']} ({s['symbol']})" for s in related_stocks]
-    
-    # 세션 상태 지정을 통해 검색어 변경 시 라디오 버튼이 첫 번째 항목으로 강제 리셋되도록 연결
-    if "radio_selected" not in st.session_state:
-        st.session_state["radio_selected"] = options_format[0]
-        
-    selected_option = st.sidebar.radio(
-        "원하시는 종목을 누르면 즉시 차트가 나옵니다:", 
-        options_format, 
-        key="radio_widget"
-    )
-    selected_ticker = selected_option.split("(")[-1].replace(")", "").strip()
-    fallback_name = selected_option.split(" (")[0].strip()
-else:
-    st.sidebar.warning("연관된 종목이 없습니다. 다시 입력해 주세요.")
-    selected_ticker = "005930.KS"
-    fallback_name = "삼성전자"
 
 st.sidebar.markdown("---")
 chart_period = st.sidebar.radio("📅 차트 보기 설정", ["일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)"])
-months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
-
-# 즐겨찾기 제어
-is_fav = selected_ticker in st.session_state.favorites_dict
-fav_check = st.sidebar.checkbox("⭐ 현재 선택 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{selected_ticker}")
-
-if fav_check and not is_fav:
-    info_dict = yf.Ticker(selected_ticker).info
-    raw_n = info_dict.get('longName') or info_dict.get('shortName') or fallback_name
-    st.session_state.favorites_dict[selected_ticker] = translate_text(raw_n, target_lang="ko") or fallback_name
-    st.rerun()
-elif not fav_check and is_fav:
-    del st.session_state.favorites_dict[selected_ticker]
-    st.rerun()
+months_ago = st.sidebar.slider("⏰ AI 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
 
 st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 for code, name in st.session_state.favorites_dict.items():
     if st.sidebar.button(f"📌 {name} ({code})", key=f"fav_{code}", use_container_width=True):
         st.session_state.search_term = name
-        if "radio_selected" in st.session_state:
-            del st.session_state["radio_selected"]
+        st.session_state.selected_ticker = code
+        st.session_state.fallback_name = name
         st.rerun()
 
-# --- 🚀 메인 프레임워크 구동부 ---
-if selected_ticker:
-    if selected_ticker not in st.session_state.history:
-        st.session_state.history.insert(0, selected_ticker)
-        st.session_state.history = st.session_state.history[:5]
+# --- 🏢 메인 화면 구현 (상단 연관 종목 리스트 블록 개설) ---
+related_stocks = get_related_stock_list(st.session_state.search_term)
 
+if related_stocks:
+    # 🌟 [요구사항 반영] 메인 상단에 새로 하나 만들어서 검색 기업 관련 종목을 가로로 나열하는 섹션
+    st.markdown("### 🔍 연관 기업 종목 선택 목록")
+    st.write("검색하신 단어와 관련된 기업 목록입니다. 원하시는 기업 버튼을 클릭하시면 하단 대시보드가 즉시 실시간 전환됩니다.")
+    
+    # 버튼들을 가로로 이쁘게 나열하기 위한 동적 컬럼 생성
+    cols = st.columns(min(len(related_stocks), 5))
+    for i, stock in enumerate(related_stocks[:5]):
+        with cols[i]:
+            # 현재 선택된 종목은 시각적으로 강조
+            is_current = (stock['symbol'] == st.session_state.selected_ticker)
+            btn_label = f"🟢 {stock['shortname']}" if is_current else f"🏢 {stock['shortname']}"
+            
+            if st.button(btn_label, key=f"main_rel_{stock['symbol']}", use_container_width=True):
+                st.session_state.selected_ticker = stock['symbol']
+                st.session_state.fallback_name = stock['shortname']
+                st.rerun()
+    st.markdown("---")
+else:
+    st.warning("연관된 종목이 없습니다. 정확한 기업명을 입력해 주세요.")
+
+# --- 🚀 메인 프레임워크 구동부 (선택된 종목 기반) ---
+selected_ticker = st.session_state.selected_ticker
+fallback_name = st.session_state.fallback_name
+
+if selected_ticker:
     info_data = {}
     try:
         info_data = yf.Ticker(selected_ticker).info
@@ -233,6 +222,17 @@ if selected_ticker:
     country, market_name = detect_market_info(selected_ticker, info_data)
     is_korean_stock = selected_ticker.endswith('.KS') or selected_ticker.endswith('.KQ')
     
+    # 즐겨찾기 등록 체크박스 메인 상단 배치
+    is_fav = selected_ticker in st.session_state.favorites_dict
+    if st.checkbox("⭐ 현재 선택한 종목을 즐겨찾기에 등록", value=is_fav, key=f"chk_{selected_ticker}"):
+        if not is_fav:
+            st.session_state.favorites_dict[selected_ticker] = current_stock_name
+            st.rerun()
+    else:
+        if is_fav:
+            del st.session_state.favorites_dict[selected_ticker]
+            st.rerun()
+
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
     with tab1:
