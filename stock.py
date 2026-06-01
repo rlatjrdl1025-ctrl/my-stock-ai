@@ -35,7 +35,7 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🏛️ 국가 및 상장 마켓(코스피, 코스닥, 나스닥 등) 간결 분류기 ---
+# --- 🏛️ 국가 및 상장 마켓 간결 분류기 ---
 def get_market_simple_label(ticker_symbol, exchange_name=""):
     ticker_symbol = ticker_symbol.upper()
     exchange_name = exchange_name.upper()
@@ -48,10 +48,6 @@ def get_market_simple_label(ticker_symbol, exchange_name=""):
         return "나스닥"
     elif 'NYSE' in exchange_name or 'NYQ' in exchange_name:
         return "NYSE"
-    elif 'AMS' in exchange_name:
-        return "암스테르담"
-    elif 'GER' in exchange_name or 'FRA' in exchange_name:
-        return "독일"
     return "해외증시"
 
 # --- 🔍 [연관 검색 엔진] 한국어 전환 + 종목번호 + 증권구분 + 최대 노출 보강 ---
@@ -61,23 +57,20 @@ def get_related_stock_list_advanced(search_keyword):
         return []
         
     if search_keyword.isdigit() and len(search_keyword) == 6:
-        return [{"symbol": search_keyword + ".KS", "display_name": f"국내 종목 코드 입력 [{search_keyword} / 코스피]", "shortname": "국내주식"}]
+        return [{"symbol": search_keyword + ".KS", "display_name": f"국내 종목 코드 입력 [{search_keyword} / 코스피]", "shortname": "국내주식", "country": "한국"}]
         
     clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").replace(" ", "")
     stock_options = []
     try:
-        # 관련 기업 목록을 최대한 당겨오기 위해 quotesCount를 15개로 확장
         url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(clean_keyword)}&quotesCount=15"
         headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             for q in res.json().get('quotes', []):
                 symbol = q.get('symbol', '')
-                # 주식(EQUITY) 형태이거나 국내 지표인 경우 타겟팅
                 if q.get('quoteType') == 'EQUITY' or ('.KS' in symbol or '.KQ' in symbol or len(symbol) <= 5):
                     raw_name = q.get('shortname') or q.get('longname') or symbol
                     
-                    # 1단계: 자주 쓰는 대형 해외주는 즉시 한글 매핑 처리하여 속도 최적화
                     upper_sym = symbol.upper()
                     if "NVDA" in upper_sym: kr_name = "엔비디아"
                     elif "TSLA" in upper_sym: kr_name = "테슬라"
@@ -87,24 +80,23 @@ def get_related_stock_list_advanced(search_keyword):
                     elif "GOOG" in upper_sym or "GOOGL" in upper_sym: kr_name = "구글"
                     elif "META" in upper_sym: kr_name = "메타"
                     else:
-                        # 2단계: 그 외 영문명은 구글 엔진을 통해 한국어로 실시간 변환
                         translated = translate_text(raw_name, target_lang="ko")
                         kr_name = translated if (translated and translated.strip()) else raw_name
                     
-                    # 증권 시장별 분류 명칭 가져오기
                     exch = q.get('exchange', '')
                     market_label = get_market_simple_label(symbol, exch)
-                    
-                    # 순수 종목코드 가공 (.KS, .KQ 제거하여 깔끔하게 표시)
                     pure_code = symbol.split('.')[0] if '.' in symbol else symbol
                     
-                    # 🌟 요구사항 반영: [한국어 이름] + [종목번호] + [증권구분] 융합 패키징
                     display_label = f"{kr_name} [{pure_code} / {market_label}]"
+                    
+                    # 국가 분류 키 설정
+                    country_group = "한국" if (market_label in ["코스피", "코스닥"]) else "미국 및 해외"
                     
                     stock_options.append({
                         "symbol": symbol,
                         "display_name": display_label,
-                        "shortname": kr_name
+                        "shortname": kr_name,
+                        "country": country_group
                     })
     except:
         pass
@@ -206,7 +198,6 @@ search_input = st.sidebar.text_input("🔍 검색할 기업 이름 입력", valu
 
 if search_input != st.session_state.search_term:
     st.session_state.search_term = search_input
-    # 고급 검색 엔진 가동
     related = get_related_stock_list_advanced(search_input)
     if related:
         st.session_state.selected_ticker = related[0]['symbol']
@@ -225,30 +216,46 @@ for code, name in st.session_state.favorites_dict.items():
         st.session_state.fallback_name = name
         st.rerun()
 
-# --- 🏢 메인 상단: [요구사항] 완벽 반영된 가로 리스트 그리드 섹션 ---
+# --- 🏢 메인 상단: [요구사항] 국가별 / 증권 지수별 완전 분리 가로 섹션 ---
 related_stocks = get_related_stock_list_advanced(st.session_state.search_term)
 
 if related_stocks:
     st.markdown("### 🔍 연관 기업 종목 선택 목록")
-    st.write("원하시는 기업 버튼을 클릭하시면 하단 대시보드가 즉시 실시간 전환됩니다.")
     
-    # 🌟 [요구사항 반영] 개수 제한 없이 최대한 많은 기업이 나열되도록 자동 행 처리 기능 부여
-    # 한 행당 최대 4개의 버튼 배치 (가독성 유지 목적)
-    max_cols_per_row = 4
-    for chunk_idx in range(0, len(related_stocks), max_cols_per_row):
-        chunk = related_stocks[chunk_idx : chunk_idx + max_cols_per_row]
-        cols = st.columns(max_cols_per_row)
-        
-        for i, stock in enumerate(chunk):
-            with cols[i]:
-                is_current = (stock['symbol'] == st.session_state.selected_ticker)
-                # 🌟 [요구사항 반영] 완벽한 한국어 + 종목번호 + 증권별 표기가 반영된 라벨 적용
-                btn_label = f"🟢 {stock['display_name']}" if is_current else f"🏢 {stock['display_name']}"
-                
-                if st.button(btn_label, key=f"main_rel_{stock['symbol']}", use_container_width=True):
-                    st.session_state.selected_ticker = stock['symbol']
-                    st.session_state.fallback_name = stock['shortname']
-                    st.rerun()
+    # 1. 대한민국 자산 필터링 표출
+    korean_group = [s for s in related_stocks if s['country'] == "한국"]
+    if korean_group:
+        st.markdown("##### 🇰🇷 대한민국 자산 목록 (KOSPI / KOSDAQ)")
+        max_cols = 4
+        for chunk_idx in range(0, len(korean_group), max_cols):
+            chunk = korean_group[chunk_idx : chunk_idx + max_cols]
+            cols = st.columns(max_cols)
+            for i, stock in enumerate(chunk):
+                with cols[i]:
+                    is_current = (stock['symbol'] == st.session_state.selected_ticker)
+                    btn_label = f"🟢 {stock['display_name']}" if is_current else f"🏢 {stock['display_name']}"
+                    if st.button(btn_label, key=f"main_kr_{stock['symbol']}", use_container_width=True):
+                        st.session_state.selected_ticker = stock['symbol']
+                        st.session_state.fallback_name = stock['shortname']
+                        st.rerun()
+                        
+    # 2. 미국 및 글로벌 자산 필터링 표출
+    global_group = [s for s in related_stocks if s['country'] == "미국 및 해외"]
+    if global_group:
+        st.markdown("##### 🇺🇸 미국 및 글로벌 자산 목록 (NASDAQ / NYSE / S&P 500)")
+        max_cols = 4
+        for chunk_idx in range(0, len(global_group), max_cols):
+            chunk = global_group[chunk_idx : chunk_idx + max_cols]
+            cols = st.columns(max_cols)
+            for i, stock in enumerate(chunk):
+                with cols[i]:
+                    is_current = (stock['symbol'] == st.session_state.selected_ticker)
+                    btn_label = f"🟢 {stock['display_name']}" if is_current else f"🏢 {stock['display_name']}"
+                    if st.button(btn_label, key=f"main_gl_{stock['symbol']}", use_container_width=True):
+                        st.session_state.selected_ticker = stock['symbol']
+                        st.session_state.fallback_name = stock['shortname']
+                        st.rerun()
+                        
     st.markdown("---")
 else:
     st.warning("연관된 종목이 없습니다. 정확한 기업명을 입력해 주세요.")
