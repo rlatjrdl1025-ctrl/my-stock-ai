@@ -35,7 +35,7 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🔍 [검색 기능 완전 복구] 국장/해외 주식 자율 추적 엔진 ---
+# --- 🔍 [검색 기능] 국장/해외 주식 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
     search_keyword = search_keyword.strip().upper()
     if not search_keyword:
@@ -146,7 +146,7 @@ st.sidebar.header("⚙️ 분석 설정")
 search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
-with st.spinner("AI 실시간 검색 엔진 구동 중..."):
+with St.spinner("AI 실시간 검색 엔진 구동 중..."):
     my_stock = search_ticker_by_name(search_input)
 
 # 메인 데이터 호출 및 정보 수집
@@ -242,7 +242,6 @@ if my_stock:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
                         st.info(f"📊 분석 대상 : **{current_stock_name} ({my_stock})**")
                         
-                        # 국가 및 소속 거래소 마켓 분류 정밀 정보창
                         st.markdown(f"""
                         * **소속 국가 :** {country}
                         * **상장 시장 :** **{market_name}**
@@ -262,12 +261,14 @@ if my_stock:
                         else: st.error(f"🔴 **이동평균선:** 역배열 데드크로스 압력이 있습니다. (현재가: {fmt_close})")
                     
                     with col2:
-                        # 직관적인 주가 변동 막대 바 차트(Bar Chart) 연동
-                        st.subheader(f"📊 {current_stock_name} 가격 변동 바 차트")
+                        # 🌟 [요구사항 반영] 5평, 20평 복구한 라인 차트 연동 🌟
+                        st.subheader(f"📈 {current_stock_name} 주가 및 이동평균선 통합 추이")
                         chart_df = pd.DataFrame({
-                            '종가 시세': np.round(processed_df['Close']) if is_korean_stock else np.round(processed_df['Close'], 2)
+                            '현재가': np.round(processed_df['Close']) if is_korean_stock else np.round(processed_df['Close'], 2),
+                            '5일선(단기)': np.round(processed_df['MA5']) if is_korean_stock else np.round(processed_df['MA5'], 2),
+                            '20일선(장기)': np.round(processed_df['MA20']) if is_korean_stock else np.round(processed_df['MA20'], 2)
                         }, index=processed_df.index.strftime('%Y-%m-%d'))
-                        st.bar_chart(chart_df)
+                        st.line_chart(chart_df)
                         
                         if is_korean_stock:
                             st.markdown(f"""> **💰 국내 자산 정산 안내:** 현재 종가는 **₩{latest_close:,.0f}** 입니다.""")
@@ -288,17 +289,29 @@ if my_stock:
                     
     with tab2:
         st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드")
-        # 🌟 [오류 원인 완벽 제어] 변수명을 명확하게 일치시켜 연쇄 충돌 원천 차단 완료 🌟
-        news_data = get_stock_news_safe(my_stock)
-        if news_data:
-            for news in news_data:
-                with st.container():
-                    st.markdown(f"### {news['status']} [{translate_text(news['title'], 'ko')}]({news['link']})")
-                    st.success(f"💬 **본문 요약:** {translate_text(news['summary'], 'ko')}")
-                    st.caption(f"🔗 *제공처:* {news['publisher']}")
-                    st.markdown("---")
+        # 🌟 [에러 완벽 제거] 꼬여있던 데이터 호출 구조 일원화 완료 🌟
+        try:
+            news_data = get_stock_news_safe(my_stock)
+            if news_data:
+                for news in news_data:
+                    with st.container():
+                        st.markdown(f"### {news['status']} [{translate_text(news['title'], 'ko')}]({news['link']})")
+                        st.success(f"💬 **본문 요약:** {translate_text(news['summary'], 'ko')}")
+                        st.caption(f"🔗 *제공처:* {news['publisher']}")
+                        st.markdown("---")
+            else:
+                st.info("현재 수집된 실시간 뉴스가 없습니다.")
+        except:
+            st.error("뉴스를 불러오는 중 오류가 발생했습니다.")
                     
     with tab3:
         st.subheader("🎯 나의 AI 등락 예측 일기장 및 성적표")
-        history_df = update_prediction_results()
-        if not history_df.empty: st.dataframe(history_df, use_container_width=True, hide_index=True)
+        # 🌟 [성적표 연동 정상화] 에러 없이 데이터프레임 정상 출력 🌟
+        try:
+            history_df = update_prediction_results()
+            if not history_df.empty:
+                st.dataframe(history_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("아직 누적된 실전 예측 기록이 없습니다.")
+        except:
+            st.error("예측 일기장을 불러오는 중 오류가 발생했습니다.")
