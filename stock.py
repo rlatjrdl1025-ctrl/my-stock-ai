@@ -9,7 +9,44 @@ from datetime import datetime
 import urllib.parse
 import requests
 
-# --- 🔍 실시간 종목 이름 자동 조회 함수 ---
+# --- 🔍 [기능 추가] 기업 이름으로 주식 코드(티커)를 실시간 역추적하는 엔진 ---
+def search_ticker_by_name(search_keyword):
+    search_keyword = search_keyword.strip()
+    if not search_keyword:
+        return "005930.KS"
+        
+    # 만약 이미 코드 형태(숫자이거나 영어만 있는 경우)라면 역추적 건너뜀
+    if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
+        return search_keyword
+        
+    # 한국인들이 자주 쓰는 대표 종목 초고속 매핑 사전
+    KOREAN_NAME_MAP = {
+        "삼성전자": "005930.KS", "삼성": "005930.KS",
+        "카카오": "035720.KS",
+        "현대차": "005380.KS", "현대자동차": "005380.KS",
+        "SK하이닉스": "000660.KS", "하이닉스": "000660.KS",
+        "네이버": "035420.KS", "NAVER": "035420.KS",
+        "포스코": "005490.KS", "포스코홀딩스": "005490.KS",
+        "테슬라": "TSLA", "엔비디아": "NVDA", "애플": "AAPL", "마이크로소프트": "MSFT", "구글": "GOOGL"
+    }
+    
+    if search_keyword in KOREAN_NAME_MAP:
+        return KOREAN_NAME_MAP[search_keyword]
+        
+    try:
+        # 사전 외의 다른 모든 종목은 야후 자동완성 API를 통해 실시간 인터넷 검색 추적
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(search_keyword)}&quotesCount=1"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            if data.get('quotes'):
+                return data['quotes'][0]['symbol']
+    except:
+        pass
+    return search_keyword
+
+# --- 🔍 실시간 종목 이름 자동 표시 함수 ---
 def get_exact_stock_name(ticker_symbol):
     KOREAN_STOCK_MAP = {
         "005930.KS": "삼성전자", "035720.KS": "카카오", "005380.KS": "현대차",
@@ -25,7 +62,7 @@ def get_exact_stock_name(ticker_symbol):
     except:
         return ticker_symbol
 
-# --- 🌐 [보안 차단 없는 안전한 무료 한글 번역 엔진] ---
+# --- 🌐 무료 한글 번역 엔진 ---
 def translate_to_korean(text):
     if not text:
         return ""
@@ -39,7 +76,7 @@ def translate_to_korean(text):
             return "".join([sentence[0] for sentence in result[0] if sentence[0]])
     except:
         pass
-    return text  # 번역 실패 시 안전장치로 원문 반환
+    return text
 
 # --- 📰 실시간 뉴스 수집 엔진 ---
 def get_stock_news_safe(ticker_symbol):
@@ -69,13 +106,12 @@ def get_stock_news_safe(ticker_symbol):
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
-# --- 💾 저장소 고정락 (Session State) ---
 if "favorites" not in st.session_state:
     st.session_state.favorites = ["005930.KS", "TSLA", "NVDA"]
 if "history" not in st.session_state:
     st.session_state.history = []
-if "input_ticker" not in st.session_state:
-    st.session_state.input_ticker = "005930.KS"
+if "input_query" not in st.session_state:
+    st.session_state.input_query = "삼성전자"
 
 st.sidebar.header("⚙️ 분석 설정")
 
@@ -84,18 +120,20 @@ st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 if st.session_state.favorites:
     for fav in st.session_state.favorites:
         if st.sidebar.button(f"📌 {fav}", key=f"fav_{fav}", use_container_width=True):
-            st.session_state.input_ticker = fav
+            st.session_state.input_query = fav
             st.rerun()
-else:
-    st.sidebar.caption("등록된 즐겨찾기가 없습니다.")
 
 st.sidebar.markdown("---")
 
-# 종목 코드 입력창
-my_stock = st.sidebar.text_input("1. 종목 코드 입력", value=st.session_state.input_ticker).upper().strip()
-st.session_state.input_ticker = my_stock
+# 🌟 종목 이름 또는 코드 입력창 (한글 이름 입력 완벽 지원)
+search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력", value=st.session_state.input_query).strip()
+st.session_state.input_query = search_input
 
-# 즐겨찾기 체크박스 제어
+# 입력된 텍스트를 실시간 시스템 코드로 변환
+with st.spinner("종목 검색 엔진 가동 중..."):
+    my_stock = search_ticker_by_name(search_input).upper()
+
+# 즐겨찾기 체크박스 제어 (변환된 시스템 코드를 기준으로 저장)
 is_fav = my_stock in st.session_state.favorites
 fav_check = st.sidebar.checkbox("⭐ 이 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
 
@@ -118,16 +156,15 @@ st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
         if st.sidebar.button(f"🕒 {hist}", key=f"hist_{hist}", use_container_width=True):
-            st.session_state.input_ticker = hist
+            st.session_state.input_query = hist
             st.rerun()
 else:
     st.sidebar.caption("최근 검색 기록이 없습니다.")
 
 if run_button and my_stock:
-    if my_stock in st.session_state.history:
-        st.session_state.history.remove(my_stock)
-    st.session_state.history.insert(0, my_stock)
-    st.session_state.history = st.session_state.history[:5]
+    if my_stock not in st.session_state.history:
+        st.session_state.history.insert(0, my_stock)
+        st.session_state.history = st.session_state.history[:5]
     st.rerun()
 
 # --- 🚀 메인 작동부 ---
@@ -143,7 +180,7 @@ if my_stock:
             df_raw = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(df_raw) < 20:
-                st.error("데이터가 부족하거나 종목 코드가 올바르지 않습니다. (국내 주식은 뒤에 .KS를 붙여주세요)")
+                st.error("종목을 찾을 수 없거나 데이터가 부족합니다. 한글 이름을 정확히 입력하거나 미국 주식 티커(예: TSLA)를 입력해 주세요.")
             else:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
@@ -189,7 +226,7 @@ if my_stock:
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
-                        st.info(f"📊 종목명 : **{stock_display_name} ({my_stock})**")
+                        st.info(f"📊 검색된 종목 : **{stock_display_name} ({my_stock})**")
                         st.caption(f"📅 조회 주기 : {chart_period}")
                         st.metric(label="🎯 AI 예측 정확도", value=f"{accuracy * 100:.2f}%")
                         
@@ -232,7 +269,6 @@ if my_stock:
             else:
                 for news in news_data:
                     with st.container():
-                        # 🌟 제목과 본문 요약을 모두 한글로 번역하여 표출
                         ko_title = translate_to_korean(news['title'])
                         ko_summary = translate_to_korean(news['summary'])
                         
