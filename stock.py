@@ -35,15 +35,15 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🔍 [연관 검색 핵심] 입력한 단어가 포함된 종목 리스트를 실시간으로 가져오는 함수 ---
+# --- 🔍 [연관 검색] 입력한 단어가 포함된 종목 리스트를 실시간으로 추출 ---
 def get_related_stock_list(search_keyword):
     search_keyword = search_keyword.strip()
     if not search_keyword:
         return []
         
-    # 만약 숫자 6자리 코드라면 다이렉트 처리용 리스트 반환
+    # 숫자 6자리 코드 직접 입력 시 예외 처리
     if search_keyword.isdigit() and len(search_keyword) == 6:
-        return [{"symbol": search_keyword + ".KS", "shortname": "국내 코스피 코드"}]
+        return [{"symbol": search_keyword + ".KS", "shortname": "국내 코스피 종목"}]
         
     clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").replace(" ", "")
     
@@ -57,7 +57,6 @@ def get_related_stock_list(search_keyword):
             quotes = data.get('quotes', [])
             for q in quotes:
                 symbol = q.get('symbol', '')
-                # 주식(EQUITY) 형태의 자산만 리스트업
                 if q.get('quoteType') == 'EQUITY' or ('.KS' in symbol or '.KQ' in symbol or len(symbol) <= 5):
                     name = q.get('shortname') or q.get('longname') or symbol
                     stock_options.append({"symbol": symbol, "shortname": name})
@@ -91,6 +90,7 @@ def get_stock_news_safe(ticker_symbol):
     except: pass
     return news_list
 
+# --- 💾 AI 예측 기록 저장 및 결과 정산 시스템 ---
 HISTORY_FILE = "predict_history.csv"
 def save_prediction(ticker, name, pred_text, current_price):
     today_str = datetime.today().strftime('%Y-%m-%d')
@@ -134,38 +134,33 @@ def update_prediction_results():
         return df.sort_index(ascending=False)
     except: return pd.DataFrame()
 
-# --- 🖥️ 대시보드 레이아웃 설정 ---
-st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
-st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
-
+# --- 🖥️ 대시보드 구조 동기화 연동부 ---
 if "favorites_dict" not in st.session_state:
     st.session_state.favorites_dict = {"005930.KS": "삼성전자", "TSLA": "테슬라", "NVDA": "엔비디아"}
 if "history" not in st.session_state: st.session_state.history = []
 if "input_query" not in st.session_state: st.session_state.input_query = "삼성"
 
+# --- 사이드바 영역 구성 ---
 st.sidebar.header("⚙️ 분석 설정")
 
-# 종목 이름 검색창
+# 1. 기업 이름 검색창
 search_input = st.sidebar.text_input("1. 검색할 기업 이름 입력", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
-# 🌟 [연관 검색 엔진 가동] 실시간으로 연관된 종목 긁어오기
+# 🌟 실시간 연관 검색 목록 긁어오기
 related_stocks = get_related_stock_list(search_input)
 
 my_stock = None
 if related_stocks:
     st.sidebar.markdown("🔍 **연관 검색 결과 목록**")
-    # 사용자가 보기 편하게 "기업이름 (코드)" 형태로 라디오 메뉴 리스트 재정렬
     options_format = [f"{s['shortname']} ({s['symbol']})" for s in related_stocks]
     selected_option = st.sidebar.radio("원하시는 종목을 선택해 주세요:", options_format)
-    
-    # 선택된 텍스트에서 실제 시스템 코드(티커)만 추출
     my_stock = selected_option.split("(")[-1].replace(")", "").strip()
 else:
-    st.sidebar.warning("연관된 종목을 찾지 못했습니다. 글자를 다시 입력해 주세요.")
+    st.sidebar.warning("연관 종목이 없습니다. 다시 입력해 주세요.")
     my_stock = "005930.KS"
 
-# 즐겨찾기 시스템 연동
+# 즐겨찾기 체크박스 관리
 is_fav = my_stock in st.session_state.favorites_dict
 fav_check = st.sidebar.checkbox("⭐ 현재 선택 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
 
@@ -177,6 +172,7 @@ elif not fav_check and is_fav:
     del st.session_state.favorites_dict[my_stock]
     st.rerun()
 
+# 즐겨찾기 리스트 버튼 표출
 st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 if st.session_state.favorites_dict:
     for code, name in st.session_state.favorites_dict.items():
@@ -190,6 +186,7 @@ months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=
 st.sidebar.markdown("---")
 run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container_width=True)
 
+# 최근 검색 기록 목록 관리
 st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
@@ -203,13 +200,12 @@ if run_button and my_stock:
         st.session_state.history = st.session_state.history[:5]
     st.rerun()
 
-is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
-currency_symbol = "₩" if is_korean_stock else "$"
-
-# --- 🚀 메인 작동부 ---
+# --- 🚀 메인 차트 및 리포트 가동부 ---
 if my_stock:
     raw_stock_name = get_exact_stock_name(my_stock)
     current_stock_name = translate_text(raw_stock_name, target_lang="ko")
+    is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
+    currency_symbol = "₩" if is_korean_stock else "$"
     
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
@@ -220,7 +216,7 @@ if my_stock:
             df_raw = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(df_raw) < 20:
-                st.error("데이터가 마감 정산 중이거나 일시적으로 불러올 수 없습니다. 다른 종목을 선택해 보세요.")
+                st.error("데이터가 부족하거나 일시적 통신 오류입니다. 다른 종목을 선택해 주세요.")
             else:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
