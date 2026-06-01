@@ -9,6 +9,8 @@ from datetime import datetime, timedelta
 import urllib.parse
 import requests
 import os
+import plotly.graph_objects as [img]  # 고급 멀티 축 시각화 도구 연동
+from plotly.subplots import make_subplots
 
 # --- 🌐 백엔드 실시간 한글 번역 엔진 ---
 def translate_text(text, target_lang="en"):
@@ -33,43 +35,31 @@ def get_current_usd_krw():
         exchange_rate = usd_krw.history(period="1d")['Close'].iloc[-1]
         return float(exchange_rate)
     except:
-        return 1350.0  # 환율 서버 비상시 기본값
+        return 1350.0
 
 # --- 🔍 [완전 자동화] 전 세계 모든 종목 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
     search_keyword = search_keyword.strip()
     if not search_keyword:
         return "005930.KS"
-        
     if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
         return search_keyword.upper()
-        
     KOREAN_SHORT_MAP = {
         "LG": "003550.KS", "엘지": "003550.KS", "삼성전자": "005930.KS", 
         "카카오": "035720.KS", "현대차": "005380.KS", "SK하이닉스": "000660.KS"
     }
-    
     clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").replace(" ", "")
     if clean_keyword.upper() in KOREAN_SHORT_MAP:
         return KOREAN_SHORT_MAP[clean_keyword.upper()]
-    if search_keyword.upper() in KOREAN_SHORT_MAP:
-        return KOREAN_SHORT_MAP[search_keyword.upper()]
-        
     try:
         ticker = fetch_yahoo_search(clean_keyword)
-        if ticker:
-            return ticker
-    except:
-        pass
-        
+        if ticker: return ticker
+    except: pass
     try:
         english_keyword = translate_text(clean_keyword, target_lang="en")
         ticker = fetch_yahoo_search(english_keyword)
-        if ticker:
-            return ticker
-    except:
-        pass
-        
+        if ticker: return ticker
+    except: pass
     return search_keyword.upper()
 
 def fetch_yahoo_search(query_text):
@@ -82,28 +72,22 @@ def fetch_yahoo_search(query_text):
         if quotes:
             for q in quotes:
                 symbol = q.get('symbol', '')
-                if symbol.endswith('.KS') or symbol.endswith('.KQ'):
-                    return symbol
+                if symbol.endswith('.KS') or symbol.endswith('.KQ'): return symbol
             return quotes[0]['symbol']
     return None
 
-# --- 🔍 실시간 종목 이름 자동 표시 함수 ---
 def get_exact_stock_name(ticker_symbol):
     KOREAN_STOCK_MAP = {
         "003550.KS": "LG", "005930.KS": "삼성전자", "035720.KS": "카카오", 
         "005380.KS": "현대차", "000660.KS": "SK하이닉스"
     }
-    if ticker_symbol in KOREAN_STOCK_MAP:
-        return KOREAN_STOCK_MAP[ticker_symbol]
+    if ticker_symbol in KOREAN_STOCK_MAP: return KOREAN_STOCK_MAP[ticker_symbol]
     try:
         ticker_data = yf.Ticker(ticker_symbol)
         info = ticker_data.info
-        name = info.get('longName') or info.get('shortName') or ticker_symbol
-        return name
-    except:
-        return ticker_symbol
+        return info.get('longName') or info.get('shortName') or ticker_symbol
+    except: return ticker_symbol
 
-# --- 📰 실시간 뉴스 수집 엔진 ---
 def get_stock_news_safe(ticker_symbol):
     news_list = []
     try:
@@ -115,21 +99,14 @@ def get_stock_news_safe(ticker_symbol):
                 link = article.get('link') or article.get('content', {}).get('clickThroughUrl') or '#'
                 pub_name = article.get('publisher') or article.get('content', {}).get('provider', {}).get('displayName') or '금융 채널'
                 summary_text = article.get('summary') or article.get('content', {}).get('summary') or title
-                
                 status = "😐 중립"
-                if any(w in title.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '상승', '호재']):
-                    status = "🟢 호재"
-                elif any(w in title.lower() for w in ['down', 'fall', 'loss', 'drop', 'bear', '하락', '악재']):
-                    status = "🔴 악재"
-                    
+                if any(w in title.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '상승', '호재']): status = "🟢 호재"
+                elif any(w in title.lower() for w in ['down', 'fall', 'loss', 'drop', 'bear', '하락', '악재']): status = "🔴 악재"
                 news_list.append({"title": title, "link": link, "publisher": pub_name, "status": status, "summary": summary_text})
-    except:
-        pass
+    except: pass
     return news_list
 
-# --- 💾 AI 예측 기록 저장 및 결과 정산 시스템 ---
 HISTORY_FILE = "predict_history.csv"
-
 def save_prediction(ticker, name, pred_text, current_price):
     today_str = datetime.today().strftime('%Y-%m-%d')
     new_data = pd.DataFrame([{
@@ -143,14 +120,11 @@ def save_prediction(ticker, name, pred_text, current_price):
             if not ((df['예측일자'] == today_str) & (df['종목코드'] == ticker)).any():
                 df = pd.concat([df, new_data], ignore_index=True)
                 df.to_csv(HISTORY_FILE, index=False)
-        except:
-            new_data.to_csv(HISTORY_FILE, index=False)
-    else:
-        new_data.to_csv(HISTORY_FILE, index=False)
+        except: new_data.to_csv(HISTORY_FILE, index=False)
+    else: new_data.to_csv(HISTORY_FILE, index=False)
 
 def update_prediction_results():
-    if not os.path.exists(HISTORY_FILE):
-        return pd.DataFrame()
+    if not os.path.exists(HISTORY_FILE): return pd.DataFrame()
     try:
         df = pd.read_csv(HISTORY_FILE)
         updated = False
@@ -158,50 +132,33 @@ def update_prediction_results():
             if row['적중여부'] == "⏳ 대기":
                 ticker = row['종목코드']
                 pred_date = row['예측일자']
-                
                 chk_start = datetime.strptime(pred_date, '%Y-%m-%d') + timedelta(days=1)
                 chk_end = datetime.today() + timedelta(days=1)
-                
                 if chk_start <= datetime.today():
                     stock_df = yf.download(ticker, start=chk_start.strftime('%Y-%m-%d'), end=chk_end.strftime('%Y-%m-%d'), progress=False)
                     if len(stock_df) > 0:
                         stock_df.columns = stock_df.columns.get_level_values(0)
                         next_close = float(stock_df['Close'].iloc[0])
-                        prev_close = float(row['예측시점가격'])
-                        
-                        actual_dir = "상승 📈" if next_close > prev_close else "하락 📉"
-                        is_correct = "⭕ 적중" if row['AI예측'].split()[0] == actual_dir.split()[0] else "❌ 실패"
-                        
-                        # 성적표 내부 금액 포맷팅 (원화/달러 구분 적용)
                         is_ko = ticker.endswith('.KS') or ticker.endswith('.KQ')
                         fmt = f"₩{next_close:,.0f}" if is_ko else f"${next_close:,.2f}"
-                        
+                        actual_dir = "상승 📈" if next_close > float(row['예측시점가격']) else "하락 📉"
                         df.at[idx, '실제결과'] = f"{fmt} ({actual_dir})"
-                        df.at[idx, '적중여부'] = is_correct
+                        df.at[idx, '적중여부'] = "⭕ 적중" if row['AI예측'].split()[0] == actual_dir.split()[0] else "❌ 실패"
                         updated = True
-        if updated:
-            df.to_csv(HISTORY_FILE, index=False)
+        if updated: df.to_csv(HISTORY_FILE, index=False)
         return df.sort_index(ascending=False)
-    except:
-        return pd.DataFrame()
+    except: return pd.DataFrame()
 
-# --- 🖥️ 대시보드 설정 ---
+# --- 🖥️ 대시보드 레이아웃 시작 ---
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
 if "favorites_dict" not in st.session_state:
-    st.session_state.favorites_dict = {
-        "005930.KS": "삼성전자",
-        "TSLA": "테슬라",
-        "NVDA": "엔비디아"
-    }
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "input_query" not in st.session_state:
-    st.session_state.input_query = "삼성전자"
+    st.session_state.favorites_dict = {"005930.KS": "삼성전자", "TSLA": "테슬라", "NVDA": "엔비디아"}
+if "history" not in st.session_state: st.session_state.history = []
+if "input_query" not in st.session_state: st.session_state.input_query = "삼성전자"
 
 st.sidebar.header("⚙️ 분석 설정")
-
 search_input = st.sidebar.text_input("1. 종목 이름 입력 (국내/해외 무제한 검색)", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
@@ -213,7 +170,6 @@ current_stock_name = translate_text(raw_stock_name, target_lang="ko")
 
 is_fav = my_stock in st.session_state.favorites_dict
 fav_check = st.sidebar.checkbox("⭐ 이 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
-
 if fav_check and not is_fav:
     st.session_state.favorites_dict[my_stock] = current_stock_name
     st.rerun()
@@ -224,16 +180,13 @@ elif not fav_check and is_fav:
 st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 if st.session_state.favorites_dict:
     for code, name in st.session_state.favorites_dict.items():
-        button_label = f"📌 {name} ({code})"
-        if st.sidebar.button(button_label, key=f"fav_{code}", use_container_width=True):
+        if st.sidebar.button(f"📌 {name} ({code})", key=f"fav_{code}", use_container_width=True):
             st.session_state.input_query = code
             st.rerun()
 
 st.sidebar.markdown("---")
-
 chart_period = st.sidebar.radio("📅 차트 보기 설정", ["일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)"])
 months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
-
 st.sidebar.markdown("---")
 run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container_width=True)
 
@@ -250,12 +203,9 @@ if run_button and my_stock:
         st.session_state.history = st.session_state.history[:5]
     st.rerun()
 
-# --- 🚀 소속 마켓 화폐 단위 정의 ---
 is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
 currency_symbol = "₩" if is_korean_stock else "$"
-currency_name = "원화 (KRW)" if is_korean_stock else "달러 (USD)"
 
-# --- 🚀 메인 작동부 ---
 if my_stock:
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
@@ -263,11 +213,10 @@ if my_stock:
         with st.spinner("데이터 수집 및 인공지능 학습 중..."):
             end_date = datetime.today().strftime('%Y-%m-%d')
             start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
-            
             df_raw = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(df_raw) < 20:
-                st.error("종목 데이터를 가져오지 못했습니다. 기업 이름을 정확하게 입력하셨는지 확인해 주세요.")
+                st.error("종목 데이터를 가져오지 못했습니다. 이름을 정확하게 입력해 주세요.")
             else:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
@@ -275,137 +224,84 @@ if my_stock:
                 
                 df_flat['MA5'] = df_flat['Close'].rolling(window=5).mean()
                 df_flat['MA20'] = df_flat['Close'].rolling(window=20).mean()
-                
                 delta = df_flat['Close'].diff()
                 up, down = delta.clip(lower=0), -delta.clip(upper=0)
-                ema_up = up.ewm(com=13, adjust=False).mean()
-                ema_down = down.ewm(com=13, adjust=False).mean()
-                df_flat['RSI'] = 100 - (100 / (1 + (ema_up / ema_down)))
+                df_flat['RSI'] = 100 - (100 / (1 + (up.ewm(com=13, adjust=False).mean() / down.ewm(com=13, adjust=False).mean())))
                 df_flat = df_flat.dropna()
                 
-                if "주봉" in chart_period:
-                    processed_df = df_flat.resample('W').last().dropna()
-                elif "월봉" in chart_period:
-                    processed_df = df_flat.resample('ME').last().dropna()
-                else:
-                    processed_df = df_flat.copy()
-                
-                chart_df = pd.DataFrame({
-                    '현재가': processed_df['Close'].values,
-                    '5일선(단기)': processed_df['MA5'].values,
-                    '20일선(장기)': processed_df['MA20'].values
-                }, index=processed_df.index.strftime('%Y-%m-%d'))
+                processed_df = df_flat.resample('W').last().dropna() if "주봉" in chart_period else (df_flat.resample('ME').last().dropna() if "월봉" in chart_period else df_flat.copy())
                 
                 X = processed_df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']]
                 processed_df['Target'] = np.where(processed_df['Close'].shift(-1) > processed_df['Close'], 1, 0)
                 y = processed_df['Target']
                 
                 if len(X) > 5:
-                    X_today = X.iloc[[-1]]
-                    X, y = X.iloc[:-1], y.iloc[:-1]
-                    
-                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
-                    ai_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-                    ai_model.fit(X_train, y_train)
+                    X_train, X_test, y_train, y_test = train_test_split(X.iloc[:-1], y.iloc[:-1], test_size=0.2, random_state=42, shuffle=False)
+                    ai_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42).fit(X_train, y_train)
                     accuracy = accuracy_score(y_test, ai_model.predict(X_test))
-                    tomorrow_pred = ai_model.predict(X_today)
-                    
+                    tomorrow_pred = ai_model.predict(X.iloc[[-1]])
                     latest_close = float(processed_df['Close'].iloc[-1])
                     
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
                         st.info(f"📊 검색 성공 : **{current_stock_name} ({my_stock})**")
-                        st.caption(f"📅 주기 : {chart_period} | 💰 기준 통화 : {currency_name}")
                         st.metric(label="🎯 AI 내부 검증 정확도", value=f"{accuracy * 100:.2f}%")
-                        
-                        pred_txt = ""
-                        if tomorrow_pred[0] == 1:
-                            pred_txt = "상승 예상 📈"
-                            st.success(f"🔮 AI 판단 : **[ {pred_txt} ]** 다음 주기에는 주가가 오를 확률이 높습니다.")
-                        else:
-                            pred_txt = "하락 예상 📉"
-                            st.error(f"🔮 AI 판단 : **[ {pred_txt} ]** 다음 주기에는 주가가 떨어질 확률이 높습니다.")
-                        
+                        pred_txt = "상승 예상 📈" if tomorrow_pred[0] == 1 else "하락 예상 📉"
+                        if tomorrow_pred[0] == 1: st.success(f"🔮 AI 판단 : **[ {pred_txt} ]** 주가가 오를 확률이 높습니다.")
+                        else: st.error(f"🔮 AI 판단 : **[ {pred_txt} ]** 주가가 떨어질 확률이 높습니다.")
                         save_prediction(my_stock, current_stock_name, pred_txt, latest_close)
                         
-                        # 🌟 [요구사항 반영] 텍스트 정보창 금액들에 기호 및 콤마(,) 세팅 🌟
                         st.markdown("### 💡 보조지표 종합 진단")
                         latest_ma5 = processed_df['MA5'].iloc[-1]
                         latest_ma20 = processed_df['MA20'].iloc[-1]
                         latest_rsi = processed_df['RSI'].iloc[-1]
-                        
-                        # 국내 주식(소수점 제거 정수), 해외 주식(소수점 2자리 표기) 포맷 분리
-                        if is_korean_stock:
-                            fmt_close = f"{currency_symbol}{latest_close:,.0f}"
-                            fmt_ma5 = f"{currency_symbol}{latest_ma5:,.0f}"
-                            fmt_ma20 = f"{currency_symbol}{latest_ma20:,.0f}"
-                        else:
-                            fmt_close = f"{currency_symbol}{latest_close:,.2f}"
-                            fmt_ma5 = f"{currency_symbol}{latest_ma5:,.2f}"
-                            fmt_ma20 = f"{currency_symbol}{latest_ma20:,.2f}"
-                        
-                        if latest_ma5 > latest_ma20:
-                            st.success(f"🟢 **이동평균선:** 현재 단기 이평선({fmt_ma5})이 장기 이평선({fmt_ma20}) 위에 있는 **[골든크로스 / 정배열]** 상태입니다. (현재가: {fmt_close})")
-                        else:
-                            st.error(f"🔴 **이동평균선:** 현재 단기 이평선({fmt_ma5})이 장기 이평선({fmt_ma20}) 아래에 있는 **[데드크로스 / 역배열]** 상태입니다. (현재가: {fmt_close})")
-                        
-                        if latest_rsi >= 70:
-                            st.warning(f"⚠️ **RSI 심리도:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매수 과열 상태]**입니다.")
-                        elif latest_rsi <= 30:
-                            st.info(f"🔵 **RSI 심리도:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매도 공포 상태]**입니다.")
-                        else:
-                            st.write(f"😐 **RSI 심리도:** 현재 RSI 지표는 **{latest_rsi:.1f}**로 안정적입니다.")
+                        fmt_close = f"₩{latest_close:,.0f}" if is_korean_stock else f"${latest_close:,.2f}"
+                        if latest_ma5 > latest_ma20: st.success(f"🟢 **이동평균선:** 현재 골든크로스 / 정배열 상태입니다. (현재가: {fmt_close})")
+                        else: st.error(f"🔴 **이동평균선:** 현재 데드크로스 / 역배열 상태입니다. (현재가: {fmt_close})")
                     
                     with col2:
-                        st.subheader(f"📈 {current_stock_name} 통합 추이 그래프 (단위: {currency_symbol})")
-                        st.line_chart(chart_df)
+                        st.subheader(f"📈 {current_stock_name} 프리미엄 멀티 축 그래프")
+                        
+                        # 🌟 [Plotly 가동] 달러/원화 쪼개서 보여주는 고성능 차트 빌드
+                        fig = make_subplots(specs=[[{"secondary_y": True}]])
+                        dates_str = processed_df.index.strftime('%Y-%m-%d')
+                        
+                        if is_korean_stock:
+                            # 한국 주식: 원화 레이어 세팅
+                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['Close'], name='현재가(₩)', line=dict(color='blue', width=2), hovertemplate='<b>현재가:</b> ₩%{y:,.0f}<extra></extra>'), secondary_y=False)
+                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['MA5'], name='5일선', line=dict(color='green', dash='dot'), hoverinfo='skip'), secondary_y=False)
+                            fig.update_layout(yaxis=dict(title="금액 (₩)", tickformat=",d"))
+                        else:
+                            # 미국 주식: 왼쪽축 달러($) + 오른쪽축 원화(₩) 동시에 쪼개서 활성화 🌟
+                            ex_rate = get_current_usd_krw()
+                            krw_close = processed_df['Close'] * ex_rate
+                            
+                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['Close'], name='현재가($)', line=dict(color='blue', width=2), hovertemplate='<b>달러가:</b> $%{y:,.2f}<br><b>원화가:</b> ₩%{customdata:,.0f}<extra></extra>', customdata=krw_close), secondary_y=False)
+                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['MA5'], name='5일선($)', line=dict(color='green', dash='dot'), hoverinfo='skip'), secondary_y=False)
+                            fig.add_trace(img.Scatter(x=dates_str, y=krw_close, name='원화 환산가(₩)', line=dict(color='orange', width=1.5, dash='dash'), hoverinfo='skip'), secondary_y=True)
+                            
+                            fig.update_layout(yaxis=dict(title="달러 가격 ($)", tickformat=",.2f"), yaxis2=dict(title="원화 환산 가격 (₩)", tickformat=",d"))
+                        
+                        fig.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                        st.plotly_chart(fig, use_container_width=True)
                         
                         if not is_korean_stock:
-                            with st.spinner("실시간 원/달러 환율 정산 중..."):
-                                exchange_rate = get_current_usd_krw()
-                                converted_price = latest_close * exchange_rate
-                            st.markdown(f"""
-                            > **💱 실시간 해외 자산 원화 환산 계산기**
-                            > * **현재 주가:** {currency_symbol}{latest_close:,.2f}
-                            > * **적용 환율:** 1달러($) = **{exchange_rate:,.2f}원**
-                            > * **🔥 실시간 원화 환산 금액:** 약 **₩{converted_price:,.0f}**
-                            """)
-                        else:
-                            st.markdown(f"""
-                            > **💰 국내 자산 정산 안내**
-                            > * **현재 주가:** ₩{latest_close:,.0f} (대한민국 원화 기준)
-                            """)
-                else:
-                    st.warning("데이터가 부족하여 분석을 진행할 수 없습니다.")
+                            st.markdown(f"> **💱 실시간 환율 계산기:** 현재 환율 **1$ = {ex_rate:,.2f}원** 적용 시 현재가는 약 **₩{latest_close*ex_rate:,.0f}** 입니다.")
+                else: st.warning("데이터가 부족합니다.")
                     
     with tab2:
-        st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드 (한글 번역)")
-        with st.spinner("뉴스를 실시간으로 한글로 번역하는 중..."):
-            news_data = get_stock_news_safe(my_stock)
-            if not news_data:
-                st.warning("현재 수집된 실시간 시장 뉴스가 없습니다.")
-            else:
-                for news in news_data:
-                    with st.container():
-                        ko_title = translate_text(news['title'], target_lang="ko")
-                        ko_summary = translate_text(news['summary'], target_lang="ko")
-                        st.markdown(f"### {news['status']} [{ko_title}]({news['link']})")
-                        st.success(f"💬 **본문 요약:** {ko_summary}")
-                        st.caption(f"🔗 *제공처:* {news['publisher']}")
-                        st.markdown("---")
-                        
+        st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드")
+        news_data = get_stock_news_safe(my_stock)
+        if news_data:
+            for news in news_data:
+                with st.container():
+                    st.markdown(f"### {news['status']} [{translate_text(news['title'], 'ko')}]({news['link']})")
+                    st.success(f"💬 **본문 요약:** {translate_text(news['summary'], 'ko')}")
+                    st.caption(f"🔗 *제공처:* {news['publisher']}")
+                    st.markdown("---")
+                    
     with tab3:
-        st.subheader("🎯 나의 AI 등락 예측 일기장 및 성적표")
-        st.markdown("분석 버튼을 누를 때마다 AI가 내놓은 예측 결과가 저장되며, **다음 거래일 장이 마감된 이후 자동으로 맞췄는지 틀렸는지 정산**해 줍니다.")
-        
+        st.subheader("🎯 나의 AI 등락 예측 일기장")
         history_df = update_prediction_results()
-        if not history_df.empty:
-            st.dataframe(history_df, use_container_width=True, hide_index=True)
-            total_resolved = history_df[history_df['적중여부'].isin(["⭕ 적중", "❌ 실패"])]
-            if len(total_resolved) > 0:
-                correct_count = len(total_resolved[total_resolved['적중여부'] == "⭕ 적중"])
-                win_rate = (correct_count / len(total_resolved)) * 100
-                st.metric(label="📊 실전 누적 예측 성공률 (승률)", value=f"{win_rate:.1f}%", delta=f"총 {len(total_resolved)}회 판정 중 {correct_count}회 적중")
-        else:
-            st.info("아직 누적된 실전 예측 기록이 없습니다.")
+        if not history_df.empty: st.dataframe(history_df, use_container_width=True, hide_index=True)
