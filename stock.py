@@ -10,7 +10,7 @@ import urllib.parse
 import requests
 import os
 
-# --- 🌐 백엔드 실시간 한글 번역 엔진 (검색 및 뉴스용) ---
+# --- 🌐 백엔드 실시간 한글 번역 엔진 ---
 def translate_text(text, target_lang="en"):
     if not text:
         return ""
@@ -36,10 +36,19 @@ def search_ticker_by_name(search_keyword):
     if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
         return search_keyword
         
-    # '주식회사', '(주)' 등 불필요한 서수 기호 제거 정제
-    clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").strip()
+    # 대표적인 한국 대형주 고속 처리를 위한 마스터 키 사전
+    KOREAN_SHORT_MAP = {
+        "LG": "003550.KS", "엘지": "003550.KS", "삼성전자": "005930.KS", 
+        "카카오": "035720.KS", "현대차": "005380.KS", "SK하이닉스": "000660.KS"
+    }
     
-    # 1차 시도: 입력된 텍스트 그대로 야후 파이낸스 실시간 검색 검색
+    clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").replace(" ", "")
+    if clean_keyword.upper() in KOREAN_SHORT_MAP:
+        return KOREAN_SHORT_MAP[clean_keyword.upper()]
+    if search_keyword.upper() in KOREAN_SHORT_MAP:
+        return KOREAN_SHORT_MAP[search_keyword.upper()]
+        
+    # 1차 시도: 입력된 텍스트 그대로 야후 파이낸스 실시간 검색
     try:
         ticker = fetch_yahoo_search(clean_keyword)
         if ticker:
@@ -47,7 +56,7 @@ def search_ticker_by_name(search_keyword):
     except:
         pass
         
-    # 2차 시도: 한글 이름일 경우, 영문 기업명으로 실시간 번역 후 해외 마켓 재검색
+    # 2차 시도: 한글 이름일 경우, 영문으로 실시간 번역 후 해외 마켓 재검색
     try:
         english_keyword = translate_text(clean_keyword, target_lang="en")
         ticker = fetch_yahoo_search(english_keyword)
@@ -58,7 +67,6 @@ def search_ticker_by_name(search_keyword):
         
     return search_keyword
 
-# 야후 파이낸스 실시간 API 검색 보조 함수
 def fetch_yahoo_search(query_text):
     url = f"https://query1.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(query_text)}&quotesCount=10"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -67,17 +75,21 @@ def fetch_yahoo_search(query_text):
         data = res.json()
         quotes = data.get('quotes', [])
         if quotes:
-            # 한국 주식(.KS 또는 .KQ)이 검색 결과에 있다면 최우선적으로 선택
             for q in quotes:
                 symbol = q.get('symbol', '')
                 if symbol.endswith('.KS') or symbol.endswith('.KQ'):
                     return symbol
-            # 한국 주식이 아니라면 가장 연관성이 높은 글로벌 종목 반환
             return quotes[0]['symbol']
     return None
 
 # --- 🔍 실시간 종목 이름 자동 표시 함수 ---
 def get_exact_stock_name(ticker_symbol):
+    KOREAN_STOCK_MAP = {
+        "003550.KS": "LG", "005930.KS": "삼성전자", "035720.KS": "카카오", 
+        "005380.KS": "현대차", "000660.KS": "SK하이닉스"
+    }
+    if ticker_symbol in KOREAN_STOCK_MAP:
+        return KOREAN_STOCK_MAP[ticker_symbol]
     try:
         ticker_data = yf.Ticker(ticker_symbol)
         info = ticker_data.info
@@ -187,7 +199,7 @@ if st.session_state.favorites:
 
 st.sidebar.markdown("---")
 
-# 🌟 무제한 자율 검색창
+# 무제한 자율 검색창
 search_input = st.sidebar.text_input("1. 종목 이름 입력 (국내/해외 무제한 검색)", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
