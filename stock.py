@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import urllib.parse
 import requests
 import os
-import plotly.graph_objects as [img]  # 고급 멀티 축 시각화 도구 연동
+import plotly.graph_objects as go  # ◀ 에러 원인이었던 부분 완벽 수정!
 from plotly.subplots import make_subplots
 
 # --- 🌐 백엔드 실시간 한글 번역 엔진 ---
@@ -263,31 +263,51 @@ if my_stock:
                     with col2:
                         st.subheader(f"📈 {current_stock_name} 프리미엄 멀티 축 그래프")
                         
-                        # 🌟 [Plotly 가동] 달러/원화 쪼개서 보여주는 고성능 차트 빌드
                         fig = make_subplots(specs=[[{"secondary_y": True}]])
                         dates_str = processed_df.index.strftime('%Y-%m-%d')
                         
                         if is_korean_stock:
-                            # 한국 주식: 원화 레이어 세팅
-                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['Close'], name='현재가(₩)', line=dict(color='blue', width=2), hovertemplate='<b>현재가:</b> ₩%{y:,.0f}<extra></extra>'), secondary_y=False)
-                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['MA5'], name='5일선', line=dict(color='green', dash='dot'), hoverinfo='skip'), secondary_y=False)
-                            fig.update_layout(yaxis=dict(title="금액 (₩)", tickformat=",d"))
+                            # ₩ 국내 주식: 소수점 완벽 제거 및 세 자리 콤마(,) 지정
+                            fig.add_trace(go.Scatter(
+                                x=dates_str, y=processed_df['Close'], name='현재가(₩)', 
+                                line=dict(color='blue', width=2), 
+                                hovertemplate='<b>현재가:</b> ₩%{y:,.0f}<extra></extra>'
+                            ), secondary_y=False)
+                            fig.add_trace(go.Scatter(x=dates_str, y=processed_df['MA5'], name='5일선', line=dict(color='green', dash='dot'), hoverinfo='skip'), secondary_y=False)
+                            fig.update_layout(yaxis=dict(title="금액 (₩)", tickformat=",d")) # 축 소수점 제거 포맷
                         else:
-                            # 미국 주식: 왼쪽축 달러($) + 오른쪽축 원화(₩) 동시에 쪼개서 활성화 🌟
+                            # $ 해외 주식: 왼쪽 달러(소수점 2자리) & 오른쪽 원화(정수형 콤마) 쪼개기 🌟
                             ex_rate = get_current_usd_krw()
                             krw_close = processed_df['Close'] * ex_rate
                             
-                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['Close'], name='현재가($)', line=dict(color='blue', width=2), hovertemplate='<b>달러가:</b> $%{y:,.2f}<br><b>원화가:</b> ₩%{customdata:,.0f}<extra></extra>', customdata=krw_close), secondary_y=False)
-                            fig.add_trace(img.Scatter(x=dates_str, y=processed_df['MA5'], name='5일선($)', line=dict(color='green', dash='dot'), hoverinfo='skip'), secondary_y=False)
-                            fig.add_trace(img.Scatter(x=dates_str, y=krw_close, name='원화 환산가(₩)', line=dict(color='orange', width=1.5, dash='dash'), hoverinfo='skip'), secondary_y=True)
+                            # 마우스 올렸을 때 팝업에 달러($소수점2자리)와 원화(₩정수)가 직관적으로 동시에 나옵니다.
+                            fig.add_trace(go.Scatter(
+                                x=dates_str, y=processed_df['Close'], name='현재가($)', 
+                                line=dict(color='blue', width=2), 
+                                hovertemplate='<b>달러 시세:</b> $%{y:,.2f}<br><b>원화 환산:</b> ₩%{customdata:,.0f}<extra></extra>', 
+                                customdata=krw_close
+                            ), secondary_y=False)
                             
-                            fig.update_layout(yaxis=dict(title="달러 가격 ($)", tickformat=",.2f"), yaxis2=dict(title="원화 환산 가격 (₩)", tickformat=",d"))
+                            fig.add_trace(go.Scatter(x=dates_str, y=processed_df['MA5'], name='5일선($)', line=dict(color='green', dash='dot'), hoverinfo='skip'), secondary_y=False)
+                            
+                            # 우측 레이어에 주황색 대시선으로 원화 흐름을 쪼개서 매핑
+                            fig.add_trace(go.Scatter(
+                                x=dates_str, y=krw_close, name='원화 환산가(₩)', 
+                                line=dict(color='orange', width=1.5, dash='dash'), hoverinfo='skip'
+                            ), secondary_y=True)
+                            
+                            fig.update_layout(
+                                yaxis=dict(title="달러 가격 ($)", tickformat=",.2f"), # 달러축 소수점 2자리 제한
+                                yaxis2=dict(title="원화 환산 가격 (₩)", tickformat=",d") # 원화축 소수점 제거 정수 포맷
+                            )
                         
                         fig.update_layout(hovermode="x unified", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                         st.plotly_chart(fig, use_container_width=True)
                         
                         if not is_korean_stock:
                             st.markdown(f"> **💱 실시간 환율 계산기:** 현재 환율 **1$ = {ex_rate:,.2f}원** 적용 시 현재가는 약 **₩{latest_close*ex_rate:,.0f}** 입니다.")
+                        else:
+                            st.markdown(f"""> **💰 국내 자산 정산 안내:** 현재 주가는 **₩{latest_close:,.0f}** 입니다.""")
                 else: st.warning("데이터가 부족합니다.")
                     
     with tab2:
