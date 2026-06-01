@@ -147,4 +147,97 @@ else:
     with st.spinner("종목 한글 이름을 실시간 매핑 중..."):
         stock_display_name = get_exact_stock_name(my_stock)
     
-    tab1, tab2 =
+    tab1, tab2 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스 요약"])
+    
+    with tab1:
+        with st.spinner("AI가 데이터를 수집하고 학습하는 중입니다..."):
+            end_date = datetime.today().strftime('%Y-%m-%d')
+            start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
+            
+            raw_data = yf.download(my_stock, start=start_date, end=end_date)
+            
+            if len(raw_data) < 30:
+                st.error("데이터가 부족합니다. 코드를 확인해 주세요. (예: 삼성전자는 005930.KS / 테슬라는 TSLA)")
+            else:
+                raw_data = raw_data.copy()
+                if isinstance(raw_data.index, pd.MultiIndex):
+                    raw_data.index = raw_data.index.get_level_values(0)
+                raw_data.index = pd.to_datetime(raw_data.index)
+                
+                if "주봉" in chart_period:
+                    data = raw_data.resample('W').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last', 'Volume':'sum'})
+                elif "월봉" in chart_period:
+                    data = raw_data.resample('ME').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last', 'Volume':'sum'})
+                else:
+                    data = raw_data.copy()
+                    
+                data = data.dropna()
+                
+                data['MA5'] = data['Close'].rolling(window=5).mean()   
+                data['MA20'] = data['Close'].rolling(window=20).mean() 
+                
+                delta = data['Close'].diff()
+                up = delta.clip(lower=0)
+                down = -delta.clip(upper=0)
+                ema_up = up.ewm(com=13, adjust=False).mean()
+                ema_down = down.ewm(com=13, adjust=False).mean()
+                rs = ema_up / ema_down
+                data['RSI'] = 100 - (100 / (1 + rs))
+                
+                df = data.dropna().copy()
+                X = df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']] 
+                df['Target'] = np.where(df['Close'].shift(-1) > df['Close'], 1, 0)
+                y = df['Target']
+                
+                X_today = X.iloc[[-1]] 
+                X = X.iloc[:-1]
+                y = y.iloc[:-1]
+                
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+                
+                ai_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+                ai_model.fit(X_train, y_train)
+                
+                y_pred = ai_model.predict(X_test)
+                accuracy = accuracy_score(y_test, y_pred)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("🤖 AI 분석 보고서")
+                    st.info(f"📈 분석 대상 종목 : **{stock_display_name} ({my_stock})**")
+                    st.caption(f"📅 분석 기간 : {start_date} ~ {end_date} ({chart_period} 기준)")
+                    st.metric(label="🎯 업그레이드 AI 정확도", value=f"{accuracy * 100:.2f}%")
+                    
+                    tomorrow_pred = ai_model.predict(X_today)
+                    if tomorrow_pred[0] == 1:
+                        st.success(f"🔮 AI 최종 판단 : **[ 상승 예상 📈 ]** 다음 주기는 주가가 오를 확률이 높습니다.")
+                    else:
+                        st.error(f"🔮 AI 최종 판단 : **[ 하락 예상 📉 ]** 다음 주기는 주가가 떨어질 확률이 높습니다.")
+                
+                with col2:
+                    st.subheader(f"📈 {stock_display_name} [{chart_period}] 흐름")
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    ax.plot(data['Close'].index, data['Close'].values, label='Price', color='blue', linewidth=2)
+                    ax.plot(data['MA5'].index, data['MA5'].values, label='5-Period Line', color='green', linestyle=':')
+                    ax.plot(data['MA20'].index, data['MA20'].values, label='20-Period Line', color='orange', linestyle='--')
+                    ax.legend()
+                    ax.grid(True, alpha=0.3)
+                    st.pyplot(fig)
+                    
+    with tab2:
+        st.subheader(f"📰 {stock_display_name} 관련 실시간 뉴스 핵심 요약 (한글 번역)")
+        with st.spinner("시장 뉴스를 수집하고 실시간 한글로 번역하는 중입니다..."):
+            news_data = get_stock_news_light(my_stock)
+            
+            if not news_data:
+                st.warning("현재 최신 글로벌 뉴스가 수집되지 않았습니다.")
+            else:
+                for news in news_data:
+                    with st.container():
+                        ko_title = translate_to_korean(news['title'])
+                        ko_summary = translate_to_korean(news['summary'])
+                        
+                        st.markdown(f"### [{news['status']}] [{ko_title}]({news['link']})")
+                        st.success(f"💬 **실시간 한글 요약본:** {ko_summary}")
+                        st.caption(f"🔗 *제공처:* {news['publisher']} (원문 제목: {news['title']})")
+                        st.markdown("---")
