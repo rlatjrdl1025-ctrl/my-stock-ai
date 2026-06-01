@@ -363,6 +363,7 @@ def get_ai_reasoning(df, pred):
         reason.append("단기 이동평균선이 장기 이동평균선을 하회하고 있으며,")
         reason.append("RSI 지표상 하락 압력이 지속될 가능성이 높습니다." if rsi > 30 else "RSI가 과매도권에 진입하여 기술적 반등 가능성이 있습니다.")
     return " ".join(reason)
+    
                         with col2:
                             if is_korean_stock:
                                 st.subheader(f"📈 {current_stock_name} 주가 및 이동평균선 추이 (₩)")
