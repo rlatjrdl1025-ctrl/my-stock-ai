@@ -26,17 +26,24 @@ def translate_text(text, target_lang="en"):
         pass
     return text
 
+# --- 💱 실시간 원/달러 환율 수집 엔진 ---
+def get_current_usd_krw():
+    try:
+        usd_krw = yf.Ticker("KRW=X")
+        exchange_rate = usd_krw.history(period="1d")['Close'].iloc[-1]
+        return float(exchange_rate)
+    except:
+        return 1350.0  # 환율 서버 비상시 기본 데드라인 값
+
 # --- 🔍 [완전 자동화] 전 세계 모든 종목 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
     search_keyword = search_keyword.strip()
     if not search_keyword:
         return "005930.KS"
         
-    # 만약 숫자 코드나 영어 티커를 직접 입력했다면 즉시 반환
     if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
         return search_keyword.upper()
         
-    # 대표적인 한국 대형주 고속 처리를 위한 마스터 키 사전
     KOREAN_SHORT_MAP = {
         "LG": "003550.KS", "엘지": "003550.KS", "삼성전자": "005930.KS", 
         "카카오": "035720.KS", "현대차": "005380.KS", "SK하이닉스": "000660.KS"
@@ -48,7 +55,6 @@ def search_ticker_by_name(search_keyword):
     if search_keyword.upper() in KOREAN_SHORT_MAP:
         return KOREAN_SHORT_MAP[search_keyword.upper()]
         
-    # 1차 시도: 입력된 텍스트 그대로 야후 파이낸스 실시간 검색
     try:
         ticker = fetch_yahoo_search(clean_keyword)
         if ticker:
@@ -56,7 +62,6 @@ def search_ticker_by_name(search_keyword):
     except:
         pass
         
-    # 2차 시도: 한글 이름일 경우, 영문으로 실시간 번역 후 해외 마켓 재검색
     try:
         english_keyword = translate_text(clean_keyword, target_lang="en")
         ticker = fetch_yahoo_search(english_keyword)
@@ -167,7 +172,7 @@ def update_prediction_results():
                         actual_dir = "상승 📈" if next_close > prev_close else "하락 📉"
                         is_correct = "⭕ 적중" if row['AI예측'].split()[0] == actual_dir.split()[0] else "❌ 실패"
                         
-                        df.at[idx, '실제결과'] = f"{next_close:,.0f} ({actual_dir})"
+                        df.at[idx, '실제결과'] = f"{next_close:,.2f} ({actual_dir})"
                         df.at[idx, '적중여부'] = is_correct
                         updated = True
         if updated:
@@ -180,7 +185,6 @@ def update_prediction_results():
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
-# 초기 즐겨찾기 세팅 (딕셔너리 형태로 종목코드: 이름 저장)
 if "favorites_dict" not in st.session_state:
     st.session_state.favorites_dict = {
         "005930.KS": "삼성전자",
@@ -194,18 +198,15 @@ if "input_query" not in st.session_state:
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# 무제한 자율 검색창
 search_input = st.sidebar.text_input("1. 종목 이름 입력 (국내/해외 무제한 검색)", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
 with st.spinner("AI 실시간 글로벌 검색 엔진 가동 중..."):
     my_stock = search_ticker_by_name(search_input)
 
-# 실시간 이름 조회해서 검색 상태 동기화
 raw_stock_name = get_exact_stock_name(my_stock)
 current_stock_name = translate_text(raw_stock_name, target_lang="ko")
 
-# 🌟 즐겨찾기 상태 체크 및 등록 기능 강화
 is_fav = my_stock in st.session_state.favorites_dict
 fav_check = st.sidebar.checkbox("⭐ 이 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
 
@@ -216,11 +217,9 @@ elif not fav_check and is_fav:
     del st.session_state.favorites_dict[my_stock]
     st.rerun()
 
-# 🌟 즐겨찾기 목록 출력 (이름 + 번호 동시 표기 적용 완료)
 st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 if st.session_state.favorites_dict:
     for code, name in st.session_state.favorites_dict.items():
-        # 버튼 텍스트 예시: "📌 삼성전자 (005930.KS)"
         button_label = f"📌 {name} ({code})"
         if st.sidebar.button(button_label, key=f"fav_{code}", use_container_width=True):
             st.session_state.input_query = code
@@ -234,7 +233,6 @@ months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=
 st.sidebar.markdown("---")
 run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container_width=True)
 
-# 최근 검색 기록 관리
 st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
@@ -247,6 +245,11 @@ if run_button and my_stock:
         st.session_state.history.insert(0, my_stock)
         st.session_state.history = st.session_state.history[:5]
     st.rerun()
+
+# --- 🚀소속 마켓에 따른 화폐 단위 판단 시스템 구현 ---
+is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
+currency_symbol = "₩" if is_korean_stock else "$"
+currency_name = "원화 (KRW)" if is_korean_stock else "달러 (USD)"
 
 # --- 🚀 메인 작동부 ---
 if my_stock:
@@ -283,10 +286,11 @@ if my_stock:
                 else:
                     processed_df = df_flat.copy()
                 
+                # 차트 칼럼 이름에 화폐 단위를 명시하여 혼동 방지
                 chart_df = pd.DataFrame({
-                    '현재가': processed_df['Close'].values,
-                    '5일선(단기)': processed_df['MA5'].values,
-                    '20일선(장기)': processed_df['MA20'].values
+                    f'현재가 ({currency_symbol})': processed_df['Close'].values,
+                    f'5일선 ({currency_symbol})': processed_df['MA5'].values,
+                    f'20일선 ({currency_symbol})': processed_df['MA20'].values
                 }, index=processed_df.index.strftime('%Y-%m-%d'))
                 
                 X = processed_df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']]
@@ -303,13 +307,13 @@ if my_stock:
                     accuracy = accuracy_score(y_test, ai_model.predict(X_test))
                     tomorrow_pred = ai_model.predict(X_today)
                     
-                    latest_close = processed_df['Close'].iloc[-1]
+                    latest_close = float(processed_df['Close'].iloc[-1])
                     
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
                         st.info(f"📊 검색 성공 : **{current_stock_name} ({my_stock})**")
-                        st.caption(f"📅 주기 : {chart_period}")
+                        st.caption(f"📅 주기 : {chart_period} | 💰 기준 통화 : {currency_name}")
                         st.metric(label="🎯 AI 내부 검증 정확도", value=f"{accuracy * 100:.2f}%")
                         
                         pred_txt = ""
@@ -342,6 +346,23 @@ if my_stock:
                     with col2:
                         st.subheader(f"📈 {current_stock_name} 통합 추이 그래프")
                         st.line_chart(chart_df)
+                        
+                        # 🌟 [요구사항 반영] 해외 주식일 때 그래프 밑에 실시간 환율 계산기 출력 🌟
+                        if not is_korean_stock:
+                            with st.spinner("실시간 원/달러 환율 정산 중..."):
+                                exchange_rate = get_current_usd_krw()
+                                converted_price = latest_close * exchange_rate
+                            st.markdown(f"""
+                            > **💱 실시간 해외 자산 원화 환산 계산기**
+                            > * **현재 주가:** {currency_symbol}{latest_close:,.2f}
+                            > * **적용 환율:** 1달러($) = **{exchange_rate:,.2f}원**
+                            > * **🔥 실시간 원화 환산 금액:** 약 **{converted_price:,.0f}원**
+                            """)
+                        else:
+                            st.markdown(f"""
+                            > **💰 국내 자산 정산 안내**
+                            > * **현재 주가:** {currency_symbol}{latest_close:,.0f}원 (대한민국 원화 기준)
+                            """)
                 else:
                     st.warning("데이터가 부족하여 분석을 진행할 수 없습니다.")
                     
