@@ -10,7 +10,7 @@ import urllib.parse
 import requests
 import os
 
-# --- 🌐 실시간 한글 번역 및 분석 엔진 ---
+# --- 🌐 실시간 한글 번역 엔진 ---
 def translate_text(text, target_lang="en"):
     if not text: return ""
     try:
@@ -24,7 +24,7 @@ def translate_text(text, target_lang="en"):
     except: pass
     return text
 
-# 🌟 AI 판단 근거 생성 함수 (요청하신 분석 로직)
+# --- 💡 [추가] AI 판단 이유 분석 함수 ---
 def get_ai_reasoning(df, pred):
     ma5 = df['MA5'].iloc[-1]
     ma20 = df['MA20'].iloc[-1]
@@ -32,16 +32,14 @@ def get_ai_reasoning(df, pred):
     reason = []
     
     if pred == 1:
-        reason.append("이동평균선 배열이 단기 상승 추세이며,")
-        if rsi < 70: reason.append("RSI 지표상 과매수 구간이 아니므로 추가 상승 여력이 존재합니다.")
-        else: reason.append("RSI 지표가 과매수권에 진입했으나 매수세가 강합니다.")
+        reason.append("이동평균선 배열상 단기 상승 추세가 확인되며,")
+        reason.append("RSI 지표가 과매수 구간이 아니여서 추가 상승 여력이 존재합니다." if rsi < 70 else "RSI 지표가 과매수권에 도달했으나 매수 강세가 유지 중입니다.")
     else:
-        reason.append("단기 이동평균선이 장기 이동평균선을 하회하고 있으며,")
-        if rsi > 30: reason.append("RSI 지표상 아직 과매도 구간까지 여유가 있어 하락 압력이 지속될 수 있습니다.")
-        else: reason.append("RSI 지표가 과매도권에 도달하여 기술적 반등 가능성도 염두에 두어야 합니다.")
+        reason.append("단기 이동평균선이 장기 이동평균선 아래에 위치하며,")
+        reason.append("RSI 지표상 하락 압력이 지속될 가능성이 높습니다." if rsi > 30 else "RSI가 과매도권에 진입하여 기술적 반등 가능성이 있습니다.")
     return " ".join(reason)
 
-# --- (중략: 기존 유틸리티 함수 및 설정 동일 유지) ---
+# --- 💱 실시간 원/달러 환율 수집 엔진 ---
 def get_current_usd_krw():
     try:
         usd_krw = yf.Ticker("KRW=X")
@@ -49,6 +47,7 @@ def get_current_usd_krw():
         return float(exchange_rate)
     except: return 1350.0
 
+# --- 🏛️ 국가 및 상장 마켓 간결 분류기 ---
 def get_market_simple_label(ticker_symbol, exchange_name=""):
     ticker_symbol = ticker_symbol.upper()
     exchange_name = exchange_name.upper()
@@ -58,6 +57,7 @@ def get_market_simple_label(ticker_symbol, exchange_name=""):
     elif 'NYSE' in exchange_name or 'NYQ' in exchange_name: return "NYSE"
     return "해외증시"
 
+# --- 🔍 [연관 검색 엔진] ---
 def get_related_stock_list_advanced(search_keyword):
     search_keyword = search_keyword.strip()
     if not search_keyword: return []
@@ -99,10 +99,10 @@ def get_stock_news_safe(ticker_symbol):
         yahoo_news = yf.Ticker(ticker_symbol).news
         if yahoo_news:
             for article in yahoo_news[:4]:
-                title = article.get('title') or '실시간 속보'
-                link = article.get('link') or '#'
-                pub_name = article.get('publisher') or '금융 채널'
-                summary_text = article.get('summary') or title
+                title = article.get('title') or article.get('content', {}).get('title') or '실시간 속보'
+                link = article.get('link') or article.get('content', {}).get('clickThroughUrl') or '#'
+                pub_name = article.get('publisher') or article.get('content', {}).get('provider', {}).get('displayName') or '금융 채널'
+                summary_text = article.get('summary') or article.get('content', {}).get('summary') or title
                 status = "😐 중립"
                 if any(w in title.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '상승', '호재']): status = "🟢 호재"
                 elif any(w in title.lower() for w in ['down', 'fall', 'loss', 'drop', 'bear', '하락', '악재']): status = "🔴 악재"
@@ -110,6 +110,8 @@ def get_stock_news_safe(ticker_symbol):
     except: pass
     return news_list
 
+# --- 💾 AI 예측 기록 시스템 ---
+HISTORY_FILE = "predict_history.csv"
 def save_prediction(ticker, name, pred_text, current_price):
     today_str = datetime.today().strftime('%Y-%m-%d')
     new_data = pd.DataFrame([{"예측일자": today_str, "종목코드": ticker, "종목명": name, "AI예측": pred_text, "예측시점가격": float(current_price), "실제결과": "대기중", "적중여부": "⏳ 대기"}])
@@ -185,6 +187,7 @@ for code, name in st.session_state.favorites_dict.items():
         st.session_state.fallback_name = name
         st.rerun()
 
+# --- 🏢 메인 상단: 국가별 / 증권 지수별 가로 리스트 섹션 ---
 related_stocks = get_related_stock_list_advanced(st.session_state.search_term)
 if related_stocks:
     st.markdown("### 🔍 연관 기업 종목 선택 목록")
@@ -221,6 +224,7 @@ if selected_ticker:
             df['MA20'] = df['Close'].rolling(20).mean()
             delta = df['Close'].diff(); up = delta.clip(lower=0); down = -delta.clip(upper=0)
             df['RSI'] = 100 - (100 / (1 + (up.ewm(13).mean() / down.ewm(13).mean())))
+            
             X = df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']].dropna()
             y = np.where(df['Close'].shift(-1) > df['Close'], 1, 0)[-len(X):]
             model = RandomForestClassifier(n_estimators=100, max_depth=5).fit(X.iloc[:-1], y[:-1])
@@ -232,11 +236,11 @@ if selected_ticker:
                 st.info(f"📊 대상 : **{current_stock_name}**")
                 
                 if pred == 1 and df['MA5'].iloc[-1] > df['MA20'].iloc[-1]:
-                    st.success("🔥 **강력 매수 신호 포착!** (AI 상승예측 + 골든크로스)")
+                    st.success("🔥 **강력 매수 신호 포착!**")
                 
                 st.metric("AI 예측 정확도", f"{(accuracy_score(y[:-1], model.predict(X.iloc[:-1]))*100):.2f}%")
                 st.write(f"🔮 판단 : {'상승 예상 📈' if pred == 1 else '하락 예상 📉'}")
-                # 🌟 [요구사항] 예측 이유 분석 문구 추가
+                # 🌟 분석 이유 추가
                 st.write(f"📝 **분석 이유:** {get_ai_reasoning(df, pred)}")
                 
                 save_prediction(selected_ticker, current_stock_name, "상승 예상" if pred==1 else "하락 예상", float(df['Close'].iloc[-1]))
@@ -256,7 +260,6 @@ if selected_ticker:
     with tab3:
         history_df = update_prediction_results()
         if not history_df.empty:
-            st.markdown("### 🔥 최근 5회 종합 성적")
             history_df['시장'] = history_df['종목코드'].apply(lambda x: "한국 (KOSPI/KOSDAQ)" if (x.endswith('.KS') or x.endswith('.KQ')) else "미국 및 해외")
             history_df['링크주소'] = history_df.apply(lambda r: f"/?jump_tk={r['종목코드']}&jump_name={urllib.parse.quote(r['종목명'])}", axis=1)
             for m in ["한국 (KOSPI/KOSDAQ)", "미국 및 해외"]:
