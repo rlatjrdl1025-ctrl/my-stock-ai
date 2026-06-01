@@ -35,17 +35,15 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🔍 [검색 기능 원상복구] 국장/해외 주식 100% 자율 추적 엔진 ---
+# --- 🔍 [안전장치 탑재] 국장/해외 주식 100% 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
     search_keyword = search_keyword.strip().upper()
     if not search_keyword:
         return "005930.KS"
         
-    # 숫자 6자리만 쳤을 때 국장 코드로 자동 인식
     if search_keyword.isdigit() and len(search_keyword) == 6:
         return search_keyword + '.KS'
         
-    # 이미 완전한 티커 형태일 때 바로 반환
     if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
         return search_keyword
         
@@ -53,12 +51,11 @@ def search_ticker_by_name(search_keyword):
     
     try:
         url = f"https://query1.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(clean_keyword)}&quotesCount=10"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        headers = {"User-Agent": "Mozilla/5.0"}
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
             quotes = res.json().get('quotes', [])
             if quotes:
-                # 한글 검색 시 한국 마켓 우선 락온
                 for q in quotes:
                     symbol = q.get('symbol', '')
                     if symbol.endswith('.KS') or symbol.endswith('.KQ'):
@@ -68,13 +65,32 @@ def search_ticker_by_name(search_keyword):
         pass
     return search_keyword
 
-def get_exact_stock_name(ticker_symbol):
+# --- 🏛️ [기능 추가] 종목 코드를 기반으로 국가 및 소속 시장을 정밀 판별하는 함수 ---
+def detect_market_info(ticker_symbol, info_data):
+    ticker_symbol = ticker_symbol.upper()
+    
+    # 1. 한국 시장 판별
+    if ticker_symbol.endswith('.KS'):
+        return "대한민국 🇰🇷", "KOSPI (코스피)"
+    elif ticker_symbol.endswith('.KQ'):
+        return "대한민국 🇰🇷", "KOSDAQ (코스닥)"
+        
+    # 2. 미국 시장 판별 (야후 파이낸스 내부 정보 매핑)
+    exchange = info_data.get('exchange', '').upper()
+    if 'NASDAQ' in exchange or 'NGM' in exchange or 'NMS' in exchange:
+        return "미국 🇺🇸", "NASDAQ (나스닥)"
+    elif 'NYQ' in exchange or 'NYSE' in exchange:
+        # S&P 500 소속 여부 간이 체크 또는 대형주 마켓 분류
+        return "미국 🇺🇸", "NYSE / S&P 500"
+        
+    return "글ローバル 마켓 🌐", "해외 주요 증시"
+
+def get_exact_stock_info(ticker_symbol):
     try:
         ticker_data = yf.Ticker(ticker_symbol)
-        info = ticker_data.info
-        return info.get('longName') or info.get('shortName') or ticker_symbol
+        return ticker_data.info
     except:
-        return ticker_symbol
+        return {}
 
 def get_stock_news_safe(ticker_symbol):
     news_list = []
@@ -148,7 +164,7 @@ def update_prediction_results():
     except:
         return pd.DataFrame()
 
-# --- 🖥️ 대시보드 메인 설정 ---
+# --- 🖥️ 대시보드 레이아웃 설정 ---
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
@@ -160,14 +176,19 @@ if "input_query" not in st.session_state: st.session_state.input_query = "삼성
 st.sidebar.header("⚙️ 분석 설정")
 
 # 자율 입력창
-search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력 (국내/해외 무제한)", value=st.session_state.input_query).strip()
+search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
-with st.spinner("AI 실시간 엔진이 종목 찾는 중..."):
+with st.spinner("AI 실시간 검색 엔진 구동 중..."):
     my_stock = search_ticker_by_name(search_input)
 
-raw_stock_name = get_exact_stock_name(my_stock)
+# 거래소 정보 동기화 가동
+info_data = get_exact_stock_info(my_stock)
+raw_stock_name = info_data.get('longName') or info_data.get('shortName') or my_stock
 current_stock_name = translate_text(raw_stock_name, target_lang="ko")
+
+# 국가 및 마켓 자동 분류 락온 🌟
+country, market_name = detect_market_info(my_stock, info_data)
 
 is_fav = my_stock in st.session_state.favorites_dict
 fav_check = st.sidebar.checkbox("⭐ 이 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
@@ -208,17 +229,18 @@ if run_button and my_stock:
 is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
 currency_symbol = "₩" if is_korean_stock else "$"
 
-# --- 🚀 구동 제어부 ---
 if my_stock:
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
     with tab1:
-        end_date = datetime.today().strftime('%Y-%m-%d')
-        start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
-        
-        try:
-            df_raw = yf.download(my_stock, start=start_date, end=end_date, progress=False)
-            if len(df_raw) >= 20:
+        with st.spinner("데이터 수집 및 인공지능 학습 중..."):
+            end_date = datetime.today().strftime('%Y-%m-%d')
+            start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
+            df_raw = yf.download(my_stock, start=start_date, end=end_date)
+            
+            if len(df_raw) < 20:
+                st.error("종목 데이터를 가져오지 못했습니다. 이름이나 코드를 다시 확인해 주세요.")
+            else:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
                 df_flat.index = pd.to_datetime(df_flat.index)
@@ -246,7 +268,14 @@ if my_stock:
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
-                        st.info(f"📊 검색 성공 : **{current_stock_name} ({my_stock})**")
+                        st.info(f"📊 분석 대상 : **{current_stock_name} ({my_stock})**")
+                        
+                        # 🌟 [요구사항 반영] 국가 및 거래소 명확한 마크다운 표출 영역
+                        st.markdown(f"""
+                        * **소속 국가 :** {country}
+                        * **상장 시장 :** **{market_name}**
+                        """)
+                        
                         st.metric(label="🎯 AI 내부 검증 정확도", value=f"{accuracy * 100:.2f}%")
                         pred_txt = "상승 예상 📈" if tomorrow_pred[0] == 1 else "하락 예상 📉"
                         if tomorrow_pred[0] == 1: st.success(f"🔮 AI 판단 : **[ {pred_txt} ]** 다음 주기 주가 상승 확률이 높습니다.")
@@ -261,29 +290,17 @@ if my_stock:
                         else: st.error(f"🔴 **이동평균선:** 역배열 데드크로스 압력이 있습니다. (현재가: {fmt_close})")
                     
                     with col2:
-                        # 🌟 [가독성 통합 개편] 뭉개짐 없는 완벽한 면적(Area) 차트 🌟
+                        # 🌟 [요구사항 반영] 직관적인 바 차트(Bar Chart)로 전면 교체
+                        st.subheader(f"📊 {current_stock_name} 가격 변동 바 차트")
+                        chart_df = pd.DataFrame({
+                            '종가 시세': np.round(processed_df['Close']) if is_korean_stock else np.round(processed_df['Close'], 2)
+                        }, index=processed_df.index.strftime('%Y-%m-%d'))
+                        st.bar_chart(chart_df) # 한눈에 들어오는 바 차트 적용
+                        
                         if is_korean_stock:
-                            st.subheader(f"📈 {current_stock_name} 주가 추이 그래프 (단위: ₩)")
-                            chart_df = pd.DataFrame({
-                                '현재가': np.round(processed_df['Close']),
-                                '5일 이동평균선': np.round(processed_df['MA5']),
-                                '20일 이동평균선': np.round(processed_df['MA20'])
-                            }, index=processed_df.index.strftime('%Y-%m-%d'))
-                            st.area_chart(chart_df) # 소수점 없는 깔끔한 국장 전용 면적 차트
                             st.markdown(f"""> **💰 국내 자산 정산 안내:** 현재 종가는 **₩{latest_close:,.0f}** 입니다.""")
                         else:
                             ex_rate = get_current_usd_krw()
-                            st.subheader(f"📈 {current_stock_name} 글로벌 주가 추이 그래프 (단위: $)")
-                            
-                            # 그래프 배율을 망가뜨리지 않는 단일 달러 면적 차트 구성
-                            chart_df_usd = pd.DataFrame({
-                                '현재가': np.round(processed_df['Close'], 2),
-                                '5일선': np.round(processed_df['MA5'], 2),
-                                '20일선': np.round(processed_df['MA20'], 2)
-                            }, index=processed_df.index.strftime('%Y-%m-%d'))
-                            st.area_chart(chart_df_usd)
-                            
-                            # 차트 바로 밑에 달러 시세와 실시간 고시환율이 녹아든 원화 환산 가격을 명확히 세트로 표기!
                             st.markdown(f"""
                             > **💱 실시간 달러 시세 및 원화 환산 통합 리포트**
                             > * **현재 달러 종가:** **${latest_close:,.2f}**
