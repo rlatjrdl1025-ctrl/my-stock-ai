@@ -60,13 +60,6 @@ def get_related_stock_list(search_keyword):
         pass
     return stock_options
 
-def get_exact_stock_name(ticker_symbol):
-    try:
-        info = yf.Ticker(ticker_symbol).info
-        return info.get('longName') or info.get('shortName') or ticker_symbol
-    except:
-        return ticker_symbol
-
 # --- 🏛️ 국가 및 상장 마켓(코스피, 코스닥, 나스닥, S&P500) 정밀 분류기 ---
 def detect_market_info(ticker_symbol, info_data):
     ticker_symbol = ticker_symbol.upper()
@@ -171,16 +164,18 @@ if search_input != st.session_state.search_term:
 related_stocks = get_related_stock_list(st.session_state.search_term)
 
 selected_ticker = None
+fallback_name = "주식 종목"
 if related_stocks:
     st.sidebar.markdown("🔍 **연관 검색 결과 목록**")
     options_format = [f"{s['shortname']} ({s['symbol']})" for s in related_stocks]
     
-    # 🌟 [요구사항 반영] 라디오 버튼 선택 즉시 차트 연동 활성화
     selected_option = st.sidebar.radio("원하시는 종목을 누르면 즉시 차트가 나옵니다:", options_format)
     selected_ticker = selected_option.split("(")[-1].replace(")", "").strip()
+    fallback_name = selected_option.split(" (")[0].strip() # 🌟 번역 실패를 대비한 1차 예비 이름 추출
 else:
     st.sidebar.warning("연관된 종목이 없습니다. 다시 입력해 주세요.")
     selected_ticker = "005930.KS"
+    fallback_name = "삼성전자"
 
 st.sidebar.markdown("---")
 chart_period = st.sidebar.radio("📅 차트 보기 설정", ["일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)"])
@@ -192,8 +187,8 @@ fav_check = st.sidebar.checkbox("⭐ 현재 선택 종목 즐겨찾기 등록", 
 
 if fav_check and not is_fav:
     info_dict = yf.Ticker(selected_ticker).info
-    raw_n = info_dict.get('longName') or info_dict.get('shortName') or selected_ticker
-    st.session_state.favorites_dict[selected_ticker] = translate_text(raw_n, target_lang="ko")
+    raw_n = info_dict.get('longName') or info_dict.get('shortName') or fallback_name
+    st.session_state.favorites_dict[selected_ticker] = translate_text(raw_n, target_lang="ko") or fallback_name
     st.rerun()
 elif not fav_check and is_fav:
     del st.session_state.favorites_dict[selected_ticker]
@@ -217,10 +212,11 @@ if selected_ticker:
     except:
         pass
 
-    raw_stock_name = info_data.get('longName') or info_data.get('shortName') or selected_ticker
-    current_stock_name = translate_text(raw_stock_name, target_lang="ko")
+    # 🌟 [오류 완전 수정] 외부 번역기가 빈 값을 뱉어도 fallback_name이나 원본 이름이 강제로 들어가 누락 원천 차단
+    raw_stock_name = info_data.get('longName') or info_data.get('shortName') or fallback_name
+    translated_name = translate_text(raw_stock_name, target_lang="ko")
+    current_stock_name = translated_name if (translated_name and translated_name.strip()) else fallback_name
     
-    # 🌟 [요구사항 반영] 국가 및 거래소 마켓 자동 정밀 식별
     country, market_name = detect_market_info(selected_ticker, info_data)
     is_korean_stock = selected_ticker.endswith('.KS') or selected_ticker.endswith('.KQ')
     
@@ -282,7 +278,6 @@ if selected_ticker:
                             else: st.error(f"🔴 **이동평균선:** 역배열 데드크로스 압력 (현재가: {fmt_close})")
                         
                         with col2:
-                            # 🌟 [요구사항 반영] 5일선/20일선 삼색 지표선 부활 및 콤마 정수형 단일 차트
                             if is_korean_stock:
                                 st.subheader(f"📈 {current_stock_name} 주가 및 이동평균선 추이 (₩)")
                                 chart_df = pd.DataFrame({
@@ -296,7 +291,6 @@ if selected_ticker:
                                 ex_rate = get_current_usd_krw()
                                 st.subheader(f"📈 {current_stock_name} 글로벌 통합 주가 추이 ($)")
                                 
-                                # 🌟 [요구사항 반영] 차트 1개에 달러와 원화를 통합 출력하는 멀티 시퀀스 구성
                                 chart_df_usd = pd.DataFrame({
                                     '현재가(달러)': np.round(processed_df['Close'], 2),
                                     '5일선($)': np.round(processed_df['MA5'], 2),
@@ -317,7 +311,6 @@ if selected_ticker:
                     
     with tab2:
         st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드")
-        # 🌟 [요구사항 반영] 변수 꼬임 전면 제어로 탭 이동 시 무결점 로드 보장
         try:
             news_data = get_stock_news_safe(selected_ticker)
             if news_data:
@@ -332,7 +325,6 @@ if selected_ticker:
                     
     with tab3:
         st.subheader("🎯 나의 AI 등락 예측 일기장 및 성적표")
-        # 🌟 [요구사항 반영] 탭 이동 시 멈춤 현상 완전 제거
         try:
             history_df = update_prediction_results()
             if not history_df.empty:
