@@ -6,6 +6,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import numpy as np
 from datetime import datetime
+import urllib.parse
+import requests
 
 # --- 🔍 실시간 종목 이름 자동 조회 함수 ---
 def get_exact_stock_name(ticker_symbol):
@@ -22,6 +24,22 @@ def get_exact_stock_name(ticker_symbol):
         return name
     except:
         return ticker_symbol
+
+# --- 🌐 [보안 차단 없는 안전한 무료 한글 번역 엔진] ---
+def translate_to_korean(text):
+    if not text:
+        return ""
+    try:
+        base_url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q="
+        url = base_url + urllib.parse.quote(text)
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            return "".join([sentence[0] for sentence in result[0] if sentence[0]])
+    except:
+        pass
+    return text  # 번역 실패 시 안전장치로 원문 반환
 
 # --- 📰 실시간 뉴스 수집 엔진 ---
 def get_stock_news_safe(ticker_symbol):
@@ -61,7 +79,7 @@ if "input_ticker" not in st.session_state:
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# [⭐ 즐겨찾는 종목] 클릭 시 입력창 값 즉시 변경 후 리런
+# [⭐ 즐겨찾는 종목]
 st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 if st.session_state.favorites:
     for fav in st.session_state.favorites:
@@ -73,7 +91,7 @@ else:
 
 st.sidebar.markdown("---")
 
-# 종목 코드 입력창 (세션 동기화)
+# 종목 코드 입력창
 my_stock = st.sidebar.text_input("1. 종목 코드 입력", value=st.session_state.input_ticker).upper().strip()
 st.session_state.input_ticker = my_stock
 
@@ -95,18 +113,16 @@ months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=
 st.sidebar.markdown("---")
 run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container_width=True)
 
-# 🌟 [요구사항 반영] 최근 검색 기록을 클릭 가능한 버튼으로 구현 🌟
+# 최근 검색 기록 관리
 st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
-        # 최근 기록 버튼을 누르면 입력창 값이 바뀌면서 대시보드가 즉시 해당 종목으로 자동 전환됨
         if st.sidebar.button(f"🕒 {hist}", key=f"hist_{hist}", use_container_width=True):
             st.session_state.input_ticker = hist
             st.rerun()
 else:
     st.sidebar.caption("최근 검색 기록이 없습니다.")
 
-# 분석 시작 버튼 누를 시 히스토리 상단 추가
 if run_button and my_stock:
     if my_stock in st.session_state.history:
         st.session_state.history.remove(my_stock)
@@ -124,18 +140,15 @@ if my_stock:
             end_date = datetime.today().strftime('%Y-%m-%d')
             start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
             
-            # 주가 데이터 다운로드
             df_raw = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(df_raw) < 20:
                 st.error("데이터가 부족하거나 종목 코드가 올바르지 않습니다. (국내 주식은 뒤에 .KS를 붙여주세요)")
             else:
-                # 🌟 [에러 완천 차단 핵심] 2중 컬럼 구조(MultiIndex)를 단일 컬럼 구조로 강제 강하 및 복사
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
                 df_flat.index = pd.to_datetime(df_flat.index)
                 
-                # 기술적 보조지표 선행 계산 (1차원 데이터 기반 안전 처리)
                 df_flat['MA5'] = df_flat['Close'].rolling(window=5).mean()
                 df_flat['MA20'] = df_flat['Close'].rolling(window=20).mean()
                 
@@ -146,7 +159,6 @@ if my_stock:
                 df_flat['RSI'] = 100 - (100 / (1 + (ema_up / ema_down)))
                 df_flat = df_flat.dropna()
                 
-                # 🌟 라디오 버튼 선택에 따른 완벽한 주차별/월별 샘플링 (에러 전면 차단)
                 if "주봉" in chart_period:
                     processed_df = df_flat.resample('W').last().dropna()
                 elif "월봉" in chart_period:
@@ -154,14 +166,12 @@ if my_stock:
                 else:
                     processed_df = df_flat.copy()
                 
-                # 차트용 데이터 바인딩 (문자열 날짜 인덱스로 완벽 고정)
                 chart_df = pd.DataFrame({
                     '현재가': processed_df['Close'].values,
                     '5일선(단기)': processed_df['MA5'].values,
                     '20일선(장기)': processed_df['MA20'].values
                 }, index=processed_df.index.strftime('%Y-%m-%d'))
                 
-                # AI 머신러닝 학습 및 가동부
                 X = processed_df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']]
                 processed_df['Target'] = np.where(processed_df['Close'].shift(-1) > processed_df['Close'], 1, 0)
                 y = processed_df['Target']
@@ -188,7 +198,6 @@ if my_stock:
                         else:
                             st.error("🔮 AI 판단 : **[ 하락 예상 📉 ]** 다음 주기에는 주가가 떨어질 확률이 높습니다.")
                         
-                        # 기술적 보조지표 리포트 출력
                         st.markdown("### 💡 보조지표 종합 진단")
                         latest_close = processed_df['Close'].iloc[-1]
                         latest_ma5 = processed_df['MA5'].iloc[-1]
@@ -214,15 +223,20 @@ if my_stock:
                     st.warning("데이터가 부족하여 분석을 진행할 수 없습니다. 기간 설정을 조금 더 늘려주세요.")
                     
     with tab2:
-        st.subheader(f"📰 {stock_display_name} 관련 실시간 속보 피드")
-        news_data = get_stock_news_safe(my_stock)
-        
-        if not news_data:
-            st.warning("현재 수집된 실시간 시장 뉴스가 없습니다.")
-        else:
-            for news in news_data:
-                with st.container():
-                    st.markdown(f"### {news['status']} [{news['title']}]({news['link']})")
-                    st.info(f"💬 **본문 요약:** {news['summary']}")
-                    st.caption(f"🔗 *제공처:* {news['publisher']}")
-                    st.markdown("---")
+        st.subheader(f"📰 {stock_display_name} 관련 실시간 속보 피드 (한글 번역)")
+        with st.spinner("뉴스를 실시간으로 한글로 번역하는 중..."):
+            news_data = get_stock_news_safe(my_stock)
+            
+            if not news_data:
+                st.warning("현재 수집된 실시간 시장 뉴스가 없습니다.")
+            else:
+                for news in news_data:
+                    with st.container():
+                        # 🌟 제목과 본문 요약을 모두 한글로 번역하여 표출
+                        ko_title = translate_to_korean(news['title'])
+                        ko_summary = translate_to_korean(news['summary'])
+                        
+                        st.markdown(f"### {news['status']} [{ko_title}]({news['link']})")
+                        st.success(f"💬 **본문 요약:** {ko_summary}")
+                        st.caption(f"🔗 *제공처:* {news['publisher']} (원문 제목: {news['title']})")
+                        st.markdown("---")
