@@ -10,7 +10,7 @@ from datetime import datetime
 import urllib.parse
 import requests
 
-# --- 딕셔너리로 주요 한국 종목 한글 이름 강제 매핑 (안전장치) ---
+# --- 딕셔너리로 주요 한국 종목 한글 이름 강제 매핑 ---
 KOREAN_STOCK_MAP = {
     "005930.KS": "삼성전자",
     "035720.KS": "카카오",
@@ -40,9 +40,8 @@ def translate_to_korean(text):
         pass
     return text
 
-# --- 🔍 [기능 개선] 실시간 종목 한글 이름 자동 조회 및 번역 함수 ---
+# --- 🔍 실시간 종목 한글 이름 자동 조회 및 번역 함수 ---
 def get_exact_stock_name(ticker_symbol):
-    # 1. 자주 쓰는 한국 종목은 매핑 테이블에서 즉시 조회
     if ticker_symbol in KOREAN_STOCK_MAP:
         return KOREAN_STOCK_MAP[ticker_symbol]
         
@@ -51,9 +50,7 @@ def get_exact_stock_name(ticker_symbol):
         info = ticker_data.info
         eng_name = info.get('longName') or info.get('shortName') or ticker_symbol
         
-        # 2. 미국 주식 등 해외 종목 이름이 영어로 나오면 한글로 번역 (예: NVIDIA Corp -> 엔비디아 주식회사)
         if ticker_symbol.endswith('.KS') or ticker_symbol.endswith('.KQ'):
-            # 한국 주식인데 영문으로 나오는 경우 뒤의 'Co., Ltd.' 등을 떼고 번역 시도
             eng_name = eng_name.split('Co')[0].strip()
             
         ko_name = translate_to_korean(eng_name)
@@ -119,7 +116,7 @@ else:
             st.session_state.favorites.append(my_stock)
             st.rerun()
 
-# 🌟 [기능 추가] 차트 주기 선택 (일봉, 주봉, 월봉)
+# 차트 주기 선택 (일봉, 주봉, 월봉)
 st.sidebar.markdown("---")
 st.sidebar.subheader("📅 차트 보기 설정")
 chart_period = st.sidebar.radio("조회할 차트 단위를 선택하세요", ["일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)"])
@@ -133,110 +130,4 @@ run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container
 st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
-        if st.sidebar.button(f"🕒 {hist}", key=f"hist_{hist}", use_container_width=True):
-            st.session_state.current_input = hist
-            st.rerun()
-
-# --- 🚀 메인 분석 가동부 ---
-if not run_button and not st.session_state.history:
-    st.info(f"💡 코드 입력창에 종목을 치거나, 즐겨찾기 단추를 누른 뒤 [종합 시장 분석 시작 🔥] 버튼을 눌러주세요!")
-else:
-    if my_stock and (not st.session_state.history or st.session_state.history[0] != my_stock):
-        if my_stock in st.session_state.history:
-            st.session_state.history.remove(my_stock)
-        st.session_state.history.insert(0, my_stock)
-        st.session_state.history = st.session_state.history[:5]
-
-    with st.spinner("종목 한글 이름을 실시간 매핑 중..."):
-        stock_display_name = get_exact_stock_name(my_stock)
-    
-    tab1, tab2 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스 요약"])
-    
-    with tab1:
-        with st.spinner("AI가 데이터를 수집하고 학습하는 중입니다..."):
-            end_date = datetime.today().strftime('%Y-%m-%d')
-            start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
-            
-            # 야후 파이낸스에서 기본 데이터 다운로드
-            raw_data = yf.download(my_stock, start=start_date, end=end_date)
-            
-            if len(raw_data) < 30:
-                st.error("데이터가 부족합니다. 코드를 확인해 주세요. (예: 삼성전자는 005930.KS / 테슬라는 TSLA)")
-            else:
-                # 🌟 라디오 버튼 선택에 따라 데이터 리샘플링 (일봉/주봉/월봉 전환)
-                if "주봉" in chart_period:
-                    data = raw_data.resample('W').last()
-                elif "월봉" in chart_period:
-                    data = raw_data.resample('M').last()
-                else:
-                    data = raw_data.copy()
-                    
-                data['MA5'] = data['Close'].rolling(window=5).mean()   
-                data['MA20'] = data['Close'].rolling(window=20).mean() 
-                
-                delta = data['Close'].diff()
-                up = delta.clip(lower=0)
-                down = -delta.clip(upper=0)
-                ema_up = up.ewm(com=13, adjust=False).mean()
-                ema_down = down.ewm(com=13, adjust=False).mean()
-                rs = ema_up / ema_down
-                data['RSI'] = 100 - (100 / (1 + rs))
-                
-                df = data.dropna().copy()
-                X = df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']] 
-                df['Target'] = np.where(df['Close'].shift(-1) > df['Close'], 1, 0)
-                y = df['Target']
-                
-                X_today = X.iloc[[-1]] 
-                X = X.iloc[:-1]
-                y = y.iloc[:-1]
-                
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
-                
-                ai_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-                ai_model.fit(X_train, y_train)
-                
-                y_pred = ai_model.predict(X_test)
-                accuracy = accuracy_score(y_test, y_pred)
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.subheader("🤖 AI 분석 보고서")
-                    # 🌟 화면에 한글 이름과 코드가 나란히 이쁘게 출력됨
-                    st.info(f"📈 분석 대상 종목 : **{stock_display_name} ({my_stock})**")
-                    st.caption(f"📅 분석 기간 : {start_date} ~ {end_date} ({chart_period} 기준)")
-                    st.metric(label="🎯 업그레이드 AI 정확도", value=f"{accuracy * 100:.2f}%")
-                    
-                    tomorrow_pred = ai_model.predict(X_today)
-                    if tomorrow_pred[0] == 1:
-                        st.success(f"🔮 AI 최종 판단 : **[ 상승 예상 📈 ]** 다음 주기는 주가가 오를 확률이 높습니다.")
-                    else:
-                        st.error(f"🔮 AI 최종 판단 : **[ 하락 예상 📉 ]** 다음 주기는 주가가 떨어질 확률이 높습니다.")
-                
-                with col2:
-                    st.subheader(f"📈 {stock_display_name} [{chart_period}] 흐름")
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    ax.plot(data['Close'], label='Price', color='blue', linewidth=2)
-                    ax.plot(data['MA5'], label='5-Period Line', color='green', linestyle=':')
-                    ax.plot(data['MA20'], label='20-Period Line', color='orange', linestyle='--')
-                    ax.legend()
-                    ax.grid(True, alpha=0.3)
-                    st.pyplot(fig)
-                    
-    with tab2:
-        st.subheader(f"📰 {stock_display_name} 관련 실시간 뉴스 핵심 요약 (한글 번역)")
-        with st.spinner("시장 뉴스를 수집하고 실시간 한글로 번역하는 중입니다..."):
-            news_data = get_stock_news_light(my_stock)
-            
-            if not news_data:
-                st.warning("현재 최신 글로벌 뉴스가 수집되지 않았습니다.")
-            else:
-                for news in news_data:
-                    with st.container():
-                        ko_title = translate_to_korean(news['title'])
-                        ko_summary = translate_to_korean(news['summary'])
-                        
-                        st.markdown(f"### [{news['status']}] [{ko_title}]({news['link']})")
-                        st.success(f"💬 **실시간 한글 요약본:** {ko_summary}")
-                        st.caption(f"🔗 *제공처:* {news['publisher']} (원문 제목: {news['title']})")
-                        st.markdown("---")
+        if st.sidebar.button(f"
