@@ -34,7 +34,7 @@ def search_ticker_by_name(search_keyword):
         
     # 만약 숫자 코드나 영어 티커를 직접 입력했다면 즉시 반환
     if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
-        return search_keyword
+        return search_keyword.upper()
         
     # 대표적인 한국 대형주 고속 처리를 위한 마스터 키 사전
     KOREAN_SHORT_MAP = {
@@ -65,7 +65,7 @@ def search_ticker_by_name(search_keyword):
     except:
         pass
         
-    return search_keyword
+    return search_keyword.upper()
 
 def fetch_yahoo_search(query_text):
     url = f"https://query1.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(query_text)}&quotesCount=10"
@@ -180,8 +180,13 @@ def update_prediction_results():
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
-if "favorites" not in st.session_state:
-    st.session_state.favorites = ["005930.KS", "TSLA", "NVDA"]
+# 초기 즐겨찾기 세팅 (딕셔너리 형태로 종목코드: 이름 저장)
+if "favorites_dict" not in st.session_state:
+    st.session_state.favorites_dict = {
+        "005930.KS": "삼성전자",
+        "TSLA": "테슬라",
+        "NVDA": "엔비디아"
+    }
 if "history" not in st.session_state:
     st.session_state.history = []
 if "input_query" not in st.session_state:
@@ -189,32 +194,39 @@ if "input_query" not in st.session_state:
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# 즐겨찾기 목록
-st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
-if st.session_state.favorites:
-    for fav in st.session_state.favorites:
-        if st.sidebar.button(f"📌 {fav}", key=f"fav_{fav}", use_container_width=True):
-            st.session_state.input_query = fav
-            st.rerun()
-
-st.sidebar.markdown("---")
-
 # 무제한 자율 검색창
 search_input = st.sidebar.text_input("1. 종목 이름 입력 (국내/해외 무제한 검색)", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
 with st.spinner("AI 실시간 글로벌 검색 엔진 가동 중..."):
-    my_stock = search_ticker_by_name(search_input).upper()
+    my_stock = search_ticker_by_name(search_input)
 
-is_fav = my_stock in st.session_state.favorites
+# 실시간 이름 조회해서 검색 상태 동기화
+raw_stock_name = get_exact_stock_name(my_stock)
+current_stock_name = translate_text(raw_stock_name, target_lang="ko")
+
+# 🌟 즐겨찾기 상태 체크 및 등록 기능 강화
+is_fav = my_stock in st.session_state.favorites_dict
 fav_check = st.sidebar.checkbox("⭐ 이 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
 
 if fav_check and not is_fav:
-    st.session_state.favorites.append(my_stock)
+    st.session_state.favorites_dict[my_stock] = current_stock_name
     st.rerun()
 elif not fav_check and is_fav:
-    st.session_state.favorites.remove(my_stock)
+    del st.session_state.favorites_dict[my_stock]
     st.rerun()
+
+# 🌟 즐겨찾기 목록 출력 (이름 + 번호 동시 표기 적용 완료)
+st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
+if st.session_state.favorites_dict:
+    for code, name in st.session_state.favorites_dict.items():
+        # 버튼 텍스트 예시: "📌 삼성전자 (005930.KS)"
+        button_label = f"📌 {name} ({code})"
+        if st.sidebar.button(button_label, key=f"fav_{code}", use_container_width=True):
+            st.session_state.input_query = code
+            st.rerun()
+
+st.sidebar.markdown("---")
 
 chart_period = st.sidebar.radio("📅 차트 보기 설정", ["일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)"])
 months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
@@ -238,9 +250,6 @@ if run_button and my_stock:
 
 # --- 🚀 메인 작동부 ---
 if my_stock:
-    raw_name = get_exact_stock_name(my_stock)
-    stock_display_name = translate_text(raw_name, target_lang="ko")
-    
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
     with tab1:
@@ -299,7 +308,7 @@ if my_stock:
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
-                        st.info(f"📊 검색 성공 : **{stock_display_name} ({my_stock})**")
+                        st.info(f"📊 검색 성공 : **{current_stock_name} ({my_stock})**")
                         st.caption(f"📅 주기 : {chart_period}")
                         st.metric(label="🎯 AI 내부 검증 정확도", value=f"{accuracy * 100:.2f}%")
                         
@@ -311,7 +320,7 @@ if my_stock:
                             pred_txt = "하락 예상 📉"
                             st.error(f"🔮 AI 판단 : **[ {pred_txt} ]** 다음 주기에는 주가가 떨어질 확률이 높습니다.")
                         
-                        save_prediction(my_stock, stock_display_name, pred_txt, latest_close)
+                        save_prediction(my_stock, current_stock_name, pred_txt, latest_close)
                         
                         st.markdown("### 💡 보조지표 종합 진단")
                         latest_ma5 = processed_df['MA5'].iloc[-1]
@@ -331,13 +340,13 @@ if my_stock:
                             st.write(f"😐 **RSI 심리도:** 현재 RSI 지표는 **{latest_rsi:.1f}**로 안정적입니다.")
                     
                     with col2:
-                        st.subheader(f"📈 {stock_display_name} 통합 추이 그래프")
+                        st.subheader(f"📈 {current_stock_name} 통합 추이 그래프")
                         st.line_chart(chart_df)
                 else:
                     st.warning("데이터가 부족하여 분석을 진행할 수 없습니다.")
                     
     with tab2:
-        st.subheader(f"📰 {stock_display_name} 관련 실시간 속보 피드 (한글 번역)")
+        st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드 (한글 번역)")
         with st.spinner("뉴스를 실시간으로 한글로 번역하는 중..."):
             news_data = get_stock_news_safe(my_stock)
             if not news_data:
