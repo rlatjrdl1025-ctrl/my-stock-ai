@@ -10,61 +10,12 @@ import urllib.parse
 import requests
 import os
 
-# --- 🔍 전 세계 모든 종목 '한글 이름' 실시간 완벽 추적 엔진 ---
-def search_ticker_by_name(search_keyword):
-    search_keyword = search_keyword.strip()
-    if not search_keyword:
-        return "005930.KS"
-    if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
-        return search_keyword
-        
-    KOREAN_NAME_MAP = {
-        "삼성전자": "005930.KS", "삼성": "005930.KS", "카카오": "035720.KS",
-        "현대차": "005380.KS", "SK하이닉스": "000660.KS", "네이버": "035420.KS",
-        "테슬라": "TSLA", "엔비디아": "NVDA", "애플": "AAPL", "구글": "GOOGL"
-    }
-    if search_keyword in KOREAN_NAME_MAP:
-        return KOREAN_NAME_MAP[search_keyword]
-        
-    try:
-        url = f"https://query1.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(search_keyword)}&quotesCount=5"
-        headers = {"User-Agent": "Mozilla/5.0"}
-        res = requests.get(url, headers=headers, timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            quotes = data.get('quotes', [])
-            if quotes:
-                for q in quotes:
-                    symbol = q.get('symbol', '')
-                    if symbol.endswith('.KS') or symbol.endswith('.KQ'):
-                        return symbol
-                return quotes[0]['symbol']
-    except:
-        pass
-    return search_keyword
-
-# --- 🔍 실시간 종목 이름 자동 표시 함수 ---
-def get_exact_stock_name(ticker_symbol):
-    KOREAN_STOCK_MAP = {
-        "005930.KS": "삼성전자", "035720.KS": "카카오", "005380.KS": "현대차",
-        "000660.KS": "SK하이닉스", "035420.KS": "NAVER"
-    }
-    if ticker_symbol in KOREAN_STOCK_MAP:
-        return KOREAN_STOCK_MAP[ticker_symbol]
-    try:
-        ticker_data = yf.Ticker(ticker_symbol)
-        info = ticker_data.info
-        name = info.get('longName') or info.get('shortName') or ticker_symbol
-        return name
-    except:
-        return ticker_symbol
-
-# --- 🌐 무료 한글 번역 엔진 ---
-def translate_to_korean(text):
+# --- 🌐 백엔드 실시간 한글 번역 엔진 (검색 및 뉴스용) ---
+def translate_text(text, target_lang="en"):
     if not text:
         return ""
     try:
-        base_url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q="
+        base_url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target_lang}&dt=t&q="
         url = base_url + urllib.parse.quote(text)
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers, timeout=5)
@@ -74,6 +25,66 @@ def translate_to_korean(text):
     except:
         pass
     return text
+
+# --- 🔍 [완전 자동화] 전 세계 모든 종목 자율 추적 엔진 ---
+def search_ticker_by_name(search_keyword):
+    search_keyword = search_keyword.strip()
+    if not search_keyword:
+        return "005930.KS"
+        
+    # 만약 숫자 코드나 영어 티커를 직접 입력했다면 즉시 반환
+    if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
+        return search_keyword
+        
+    # '주식회사', '(주)' 등 불필요한 서수 기호 제거 정제
+    clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").strip()
+    
+    # 1차 시도: 입력된 텍스트 그대로 야후 파이낸스 실시간 검색 검색
+    try:
+        ticker = fetch_yahoo_search(clean_keyword)
+        if ticker:
+            return ticker
+    except:
+        pass
+        
+    # 2차 시도: 한글 이름일 경우, 영문 기업명으로 실시간 번역 후 해외 마켓 재검색
+    try:
+        english_keyword = translate_text(clean_keyword, target_lang="en")
+        ticker = fetch_yahoo_search(english_keyword)
+        if ticker:
+            return ticker
+    except:
+        pass
+        
+    return search_keyword
+
+# 야후 파이낸스 실시간 API 검색 보조 함수
+def fetch_yahoo_search(query_text):
+    url = f"https://query1.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(query_text)}&quotesCount=10"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    res = requests.get(url, headers=headers, timeout=5)
+    if res.status_code == 200:
+        data = res.json()
+        quotes = data.get('quotes', [])
+        if quotes:
+            # 한국 주식(.KS 또는 .KQ)이 검색 결과에 있다면 최우선적으로 선택
+            for q in quotes:
+                symbol = q.get('symbol', '')
+                if symbol.endswith('.KS') or symbol.endswith('.KQ'):
+                    return symbol
+            # 한국 주식이 아니라면 가장 연관성이 높은 글로벌 종목 반환
+            return quotes[0]['symbol']
+    return None
+
+# --- 🔍 실시간 종목 이름 자동 표시 함수 ---
+def get_exact_stock_name(ticker_symbol):
+    try:
+        ticker_data = yf.Ticker(ticker_symbol)
+        info = ticker_data.info
+        name = info.get('longName') or info.get('shortName') or ticker_symbol
+        return name
+    except:
+        return ticker_symbol
 
 # --- 📰 실시간 뉴스 수집 엔진 ---
 def get_stock_news_safe(ticker_symbol):
@@ -99,7 +110,7 @@ def get_stock_news_safe(ticker_symbol):
         pass
     return news_list
 
-# --- 💾 [기능 추가] AI 예측 기록 저장 및 결과 정산 시스템 ---
+# --- 💾 AI 예측 기록 저장 및 결과 정산 시스템 ---
 HISTORY_FILE = "predict_history.csv"
 
 def save_prediction(ticker, name, pred_text, current_price):
@@ -112,7 +123,6 @@ def save_prediction(ticker, name, pred_text, current_price):
     if os.path.exists(HISTORY_FILE):
         try:
             df = pd.read_csv(HISTORY_FILE)
-            # 동일 날짜 동일 종목 중복 방지
             if not ((df['예측일자'] == today_str) & (df['종목코드'] == ticker)).any():
                 df = pd.concat([df, new_data], ignore_index=True)
                 df.to_csv(HISTORY_FILE, index=False)
@@ -132,7 +142,6 @@ def update_prediction_results():
                 ticker = row['종목코드']
                 pred_date = row['예측일자']
                 
-                # 예측일 이후의 주가 데이터를 가져와서 결과 확인 시도
                 chk_start = datetime.strptime(pred_date, '%Y-%m-%d') + timedelta(days=1)
                 chk_end = datetime.today() + timedelta(days=1)
                 
@@ -151,7 +160,7 @@ def update_prediction_results():
                         updated = True
         if updated:
             df.to_csv(HISTORY_FILE, index=False)
-        return df.sort_index(ascending=False) # 최신 기록이 위로 오게
+        return df.sort_index(ascending=False)
     except:
         return pd.DataFrame()
 
@@ -178,11 +187,11 @@ if st.session_state.favorites:
 
 st.sidebar.markdown("---")
 
-# 종목 입력창
-search_input = st.sidebar.text_input("1. 종목 이름 입력 (국내/해외 모두 가능)", value=st.session_state.input_query).strip()
+# 🌟 무제한 자율 검색창
+search_input = st.sidebar.text_input("1. 종목 이름 입력 (국내/해외 무제한 검색)", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
-with st.spinner("종목 검색 엔진 가동 중..."):
+with st.spinner("AI 실시간 글로벌 검색 엔진 가동 중..."):
     my_stock = search_ticker_by_name(search_input).upper()
 
 is_fav = my_stock in st.session_state.favorites
@@ -217,18 +226,20 @@ if run_button and my_stock:
 
 # --- 🚀 메인 작동부 ---
 if my_stock:
-    stock_display_name = translate_to_korean(get_exact_stock_name(my_stock))
+    raw_name = get_exact_stock_name(my_stock)
+    stock_display_name = translate_text(raw_name, target_lang="ko")
+    
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
     with tab1:
-        with st.spinner("데이터 정제 및 학습 진행 중..."):
+        with st.spinner("데이터 수집 및 인공지능 학습 중..."):
             end_date = datetime.today().strftime('%Y-%m-%d')
             start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
             
             df_raw = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(df_raw) < 20:
-                st.error("종목을 검색할 수 없습니다. 한글 이름을 정확히 입력해 주세요.")
+                st.error("종목 데이터를 가져오지 못했습니다. 기업 이름을 정확하게 입력하셨는지 확인해 주세요.")
             else:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
@@ -288,7 +299,6 @@ if my_stock:
                             pred_txt = "하락 예상 📉"
                             st.error(f"🔮 AI 판단 : **[ {pred_txt} ]** 다음 주기에는 주가가 떨어질 확률이 높습니다.")
                         
-                        # 🌟 [핵심] 오늘의 예측치를 내부 데이터베이스 시스템에 기록 요청
                         save_prediction(my_stock, stock_display_name, pred_txt, latest_close)
                         
                         st.markdown("### 💡 보조지표 종합 진단")
@@ -323,28 +333,24 @@ if my_stock:
             else:
                 for news in news_data:
                     with st.container():
-                        ko_title = translate_to_korean(news['title'])
-                        ko_summary = translate_to_korean(news['summary'])
+                        ko_title = translate_text(news['title'], target_lang="ko")
+                        ko_summary = translate_text(news['summary'], target_lang="ko")
                         st.markdown(f"### {news['status']} [{ko_title}]({news['link']})")
                         st.success(f"💬 **본문 요약:** {ko_summary}")
                         st.caption(f"🔗 *제공처:* {news['publisher']}")
                         st.markdown("---")
                         
-    # 🌟 [기능 추가] 세 번째 탭: 내 등락예측 성적표 화면 🌟
     with tab3:
         st.subheader("🎯 나의 AI 등락 예측 일기장 및 성적표")
         st.markdown("분석 버튼을 누를 때마다 AI가 내놓은 예측 결과가 저장되며, **다음 거래일 장이 마감된 이후 자동으로 맞췄는지 틀렸는지 정산**해 줍니다.")
         
         history_df = update_prediction_results()
         if not history_df.empty:
-            # 보기 편하게 정돈해서 테이블 표출
             st.dataframe(history_df, use_container_width=True, hide_index=True)
-            
-            # 간단한 누적 승률 통계 계산
             total_resolved = history_df[history_df['적중여부'].isin(["⭕ 적중", "❌ 실패"])]
             if len(total_resolved) > 0:
                 correct_count = len(total_resolved[total_resolved['적중여부'] == "⭕ 적중"])
                 win_rate = (correct_count / len(total_resolved)) * 100
                 st.metric(label="📊 실전 누적 예측 성공률 (승률)", value=f"{win_rate:.1f}%", delta=f"총 {len(total_resolved)}회 판정 중 {correct_count}회 적중")
         else:
-            st.info("아직 누적된 실전 예측 기록이 없습니다. 종목을 검색하고 분석을 시작하면 이곳에 성적표가 기록됩니다.")
+            st.info("아직 누적된 실전 예측 기록이 없습니다.")
