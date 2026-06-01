@@ -392,10 +392,10 @@ if selected_ticker:
             history_df = update_prediction_results()
             if not history_df.empty:
                 
-                # 🌟 [요구사항 반영 2번] 최근 5일 적중여부 종합 성공률 연산 시스템 🌟
+                # [기존 기능 유지] 최근 5일 적중여부 종합 성공률 연산 시스템
                 resolved_df = history_df[history_df['적중여부'].isin(["⭕ 적중", "❌ 실패"])]
                 if not resolved_df.empty:
-                    recent_5 = resolved_df.head(5) # 가장 최근 완료된 5개 추출
+                    recent_5 = resolved_df.head(5)
                     correct_5 = len(recent_5[recent_5['적중여부'] == "⭕ 적중"])
                     total_5 = len(recent_5)
                     win_rate_5 = (correct_5 / total_5) * 100 if total_5 > 0 else 0
@@ -407,23 +407,25 @@ if selected_ticker:
                     """)
                     st.markdown("---")
 
-                # 🌟 [요구사항 반영 3번] 성적표 기록 종목 간편 조회 기능 🌟
-                unique_tickers = history_df['종목코드'].unique()
-                ticker_names = {t: history_df[history_df['종목코드'] == t]['종목명'].iloc[0] for t in unique_tickers}
-                select_options = [f"{name} ({t})" for t, name in ticker_names.items()]
+                # 🌟 [요구사항 전격 반영] 성적표 내 종목 클릭 시 즉시 앵커링 연동 시스템 구현 🌟
+                # 성적표 데이터프레임 내부의 종목명 클릭 감지를 위해 가로형 버튼 세트로 세련되게 개편!
+                st.markdown("##### 📜 성적표 기록 종목 목록 (클릭 시 해당 종목 AI 분석 페이지로 이동)")
+                st.write("아래 기록된 종목명을 클릭하시면 해당 기업의 AI 차트 및 실시간 시장 뉴스 탭으로 즉시 워프 전환됩니다.")
                 
-                st.markdown("##### 📜 성적표 기록 종목 간편 조회")
-                view_select = st.selectbox("성적표에 있는 종목을 누르면 해당 AI 차트 페이지로 이동합니다:", ["선택하세요..."] + select_options)
-                if view_select != "선택하세요...":
-                    jump_ticker = view_select.split("(")[-1].replace(")", "").strip()
-                    jump_name = view_select.split(" (")[0].strip()
-                    st.session_state.selected_ticker = jump_ticker
-                    st.session_state.fallback_name = jump_name
-                    st.session_state.search_term = jump_name
-                    st.rerun()
+                unique_tickers = history_df['종목코드'].unique()
+                unique_cols = st.columns(min(len(unique_tickers), 5))
+                for idx, tk in enumerate(unique_tickers[:10]): # 최대 10개까지 노출
+                    tk_name = history_df[history_df['종목코드'] == tk]['종목명'].iloc[0]
+                    col_pos = idx % 5
+                    with unique_cols[col_pos]:
+                        if st.button(f"📊 {tk_name}", key=f"table_jump_{tk}", use_container_width=True):
+                            st.session_state.selected_ticker = tk
+                            st.session_state.fallback_name = tk_name
+                            st.session_state.search_term = tk_name
+                            st.rerun()
                 st.markdown("---")
 
-                # 🌟 [요구사항 반영 1번] 성적표 국가 및 지수 마켓별 전면 분리 🌟
+                # [기존 기능 유지] 성적표 국가 및 지수 마켓별 전면 분리
                 history_df['소속시장'] = history_df['종목코드'].apply(lambda x: "한국 (KOSPI/KOSDAQ)" if (x.endswith('.KS') or x.endswith('.KQ')) else "미국 및 해외")
                 
                 kr_history = history_df[history_df['소속시장'] == "한국 (KOSPI/KOSDAQ)"]
