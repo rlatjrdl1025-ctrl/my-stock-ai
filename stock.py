@@ -348,7 +348,21 @@ if selected_ticker:
                             fmt_close = f"₩{latest_close:,.0f}" if is_korean_stock else f"${latest_close:,.2f}"
                             if latest_ma5 > latest_ma20: st.success(f"🟢 **이동평균선:** 정배열 골든크로스 상태 (현재가: {fmt_close})")
                             else: st.error(f"🔴 **이동평균선:** 역배열 데드크로스 압력 (현재가: {fmt_close})")
-                        
+                        # AI 분석 이유 생성 함수
+def get_ai_reasoning(df, pred):
+    ma5 = df['MA5'].iloc[-1]
+    ma20 = df['MA20'].iloc[-1]
+    rsi = df['RSI'].iloc[-1]
+    reason = []
+    
+    # 이평선 및 RSI를 활용한 간단한 분석 로직
+    if pred == 1:
+        reason.append("단기 이동평균선이 상승 추세를 보이고 있으며,")
+        reason.append("RSI 지표상 과매수 구간이 아니여서 추가 상승 여력이 존재합니다." if rsi < 70 else "RSI 지표가 과매수권이나 매수 강세가 유지되고 있습니다.")
+    else:
+        reason.append("단기 이동평균선이 장기 이동평균선을 하회하고 있으며,")
+        reason.append("RSI 지표상 하락 압력이 지속될 가능성이 높습니다." if rsi > 30 else "RSI가 과매도권에 진입하여 기술적 반등 가능성이 있습니다.")
+    return " ".join(reason)
                         with col2:
                             if is_korean_stock:
                                 st.subheader(f"📈 {current_stock_name} 주가 및 이동평균선 추이 (₩)")
