@@ -88,8 +88,6 @@ def get_related_stock_list_advanced(search_keyword):
                     pure_code = symbol.split('.')[0] if '.' in symbol else symbol
                     
                     display_label = f"{kr_name} [{pure_code} / {market_label}]"
-                    
-                    # 국가 분류 키 설정
                     country_group = "한국" if (market_label in ["코스피", "코스닥"]) else "미국 및 해외"
                     
                     stock_options.append({
@@ -216,13 +214,12 @@ for code, name in st.session_state.favorites_dict.items():
         st.session_state.fallback_name = name
         st.rerun()
 
-# --- 🏢 메인 상단: [요구사항] 국가별 / 증권 지수별 완전 분리 가로 섹션 ---
+# --- 🏢 메인 상단: 국가별 / 증권 지수별 가로 리스트 섹션 ---
 related_stocks = get_related_stock_list_advanced(st.session_state.search_term)
 
 if related_stocks:
     st.markdown("### 🔍 연관 기업 종목 선택 목록")
     
-    # 1. 대한민국 자산 필터링 표출
     korean_group = [s for s in related_stocks if s['country'] == "한국"]
     if korean_group:
         st.markdown("##### 🇰🇷 대한민국 자산 목록 (KOSPI / KOSDAQ)")
@@ -239,7 +236,6 @@ if related_stocks:
                         st.session_state.fallback_name = stock['shortname']
                         st.rerun()
                         
-    # 2. 미국 및 글로벌 자산 필터링 표출
     global_group = [s for s in related_stocks if s['country'] == "미국 및 해외"]
     if global_group:
         st.markdown("##### 🇺🇸 미국 및 글로벌 자산 목록 (NASDAQ / NYSE / S&P 500)")
@@ -255,7 +251,6 @@ if related_stocks:
                         st.session_state.selected_ticker = stock['symbol']
                         st.session_state.fallback_name = stock['shortname']
                         st.rerun()
-                        
     st.markdown("---")
 else:
     st.warning("연관된 종목이 없습니다. 정확한 기업명을 입력해 주세요.")
@@ -396,6 +391,51 @@ if selected_ticker:
         try:
             history_df = update_prediction_results()
             if not history_df.empty:
-                st.dataframe(history_df, use_container_width=True, hide_index=True)
+                
+                # 🌟 [요구사항 반영 2번] 최근 5일 적중여부 종합 성공률 연산 시스템 🌟
+                resolved_df = history_df[history_df['적중여부'].isin(["⭕ 적중", "❌ 실패"])]
+                if not resolved_df.empty:
+                    recent_5 = resolved_df.head(5) # 가장 최근 완료된 5개 추출
+                    correct_5 = len(recent_5[recent_5['적중여부'] == "⭕ 적중"])
+                    total_5 = len(recent_5)
+                    win_rate_5 = (correct_5 / total_5) * 100 if total_5 > 0 else 0
+                    
+                    st.markdown(f"""
+                    ### 🔥 최근 5회 종합 성적표
+                    * **최근 5일 판정 상태:** 총 **{total_5}회** 중 **{correct_5}회 적중**
+                    * **최근 5일 단기 승률:** **{win_rate_5:.1f}%**
+                    """)
+                    st.markdown("---")
+
+                # 🌟 [요구사항 반영 3번] 성적표 기록 종목 간편 조회 기능 🌟
+                unique_tickers = history_df['종목코드'].unique()
+                ticker_names = {t: history_df[history_df['종목코드'] == t]['종목명'].iloc[0] for t in unique_tickers}
+                select_options = [f"{name} ({t})" for t, name in ticker_names.items()]
+                
+                st.markdown("##### 📜 성적표 기록 종목 간편 조회")
+                view_select = st.selectbox("성적표에 있는 종목을 누르면 해당 AI 차트 페이지로 이동합니다:", ["선택하세요..."] + select_options)
+                if view_select != "선택하세요...":
+                    jump_ticker = view_select.split("(")[-1].replace(")", "").strip()
+                    jump_name = view_select.split(" (")[0].strip()
+                    st.session_state.selected_ticker = jump_ticker
+                    st.session_state.fallback_name = jump_name
+                    st.session_state.search_term = jump_name
+                    st.rerun()
+                st.markdown("---")
+
+                # 🌟 [요구사항 반영 1번] 성적표 국가 및 지수 마켓별 전면 분리 🌟
+                history_df['소속시장'] = history_df['종목코드'].apply(lambda x: "한국 (KOSPI/KOSDAQ)" if (x.endswith('.KS') or x.endswith('.KQ')) else "미국 및 해외")
+                
+                kr_history = history_df[history_df['소속시장'] == "한국 (KOSPI/KOSDAQ)"]
+                us_history = history_df[history_df['소속시장'] == "미국 및 해외"]
+                
+                if not kr_history.empty:
+                    st.markdown("##### 🇰🇷 대한민국 (코스피 / 코스닥) 예측 기록")
+                    st.dataframe(kr_history.drop(columns=['소속시장']), use_container_width=True, hide_index=True)
+                    
+                if not us_history.empty:
+                    st.markdown("##### 🇺🇸 미국 및 글로벌 (NASDAQ / NYSE / S&P 500) 예측 기록")
+                    st.dataframe(us_history.drop(columns=['소속시장']), use_container_width=True, hide_index=True)
+                    
             else: st.info("아직 누적된 실전 예측 기록이 없습니다.")
         except: st.error("예측 일기장을 불러오는 중 오류가 발생했습니다.")
