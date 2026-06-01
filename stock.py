@@ -348,7 +348,8 @@ if selected_ticker:
                             fmt_close = f"₩{latest_close:,.0f}" if is_korean_stock else f"${latest_close:,.2f}"
                             if latest_ma5 > latest_ma20: st.success(f"🟢 **이동평균선:** 정배열 골든크로스 상태 (현재가: {fmt_close})")
                             else: st.error(f"🔴 **이동평균선:** 역배열 데드크로스 압력 (현재가: {fmt_close})")
-                        # AI 분석 이유 생성 함수
+                       
+# AI 분석 이유 생성 함수
 def get_ai_reasoning(df, pred):
     ma5 = df['MA5'].iloc[-1]
     ma20 = df['MA20'].iloc[-1]
