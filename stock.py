@@ -33,7 +33,7 @@ def get_current_usd_krw():
         exchange_rate = usd_krw.history(period="1d")['Close'].iloc[-1]
         return float(exchange_rate)
     except:
-        return 1350.0  # 환율 서버 비상시 기본 데드라인 값
+        return 1350.0  # 환율 서버 비상시 기본값
 
 # --- 🔍 [완전 자동화] 전 세계 모든 종목 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
@@ -246,7 +246,7 @@ if run_button and my_stock:
         st.session_state.history = st.session_state.history[:5]
     st.rerun()
 
-# --- 🚀소속 마켓에 따른 화폐 단위 판단 시스템 구현 ---
+# --- 🚀 소속 마켓 화폐 단위 정의 ---
 is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
 currency_symbol = "₩" if is_korean_stock else "$"
 currency_name = "원화 (KRW)" if is_korean_stock else "달러 (USD)"
@@ -286,11 +286,11 @@ if my_stock:
                 else:
                     processed_df = df_flat.copy()
                 
-                # 차트 칼럼 이름에 화폐 단위를 명시하여 혼동 방지
+                # ⭐ [구조 통일] 차트 컬럼명을 '현재가'로 완전히 고정하여 중복 표기 원천 차단
                 chart_df = pd.DataFrame({
-                    f'현재가 ({currency_symbol})': processed_df['Close'].values,
-                    f'5일선 ({currency_symbol})': processed_df['MA5'].values,
-                    f'20일선 ({currency_symbol})': processed_df['MA20'].values
+                    '현재가': processed_df['Close'].values,
+                    '5일선(단기)': processed_df['MA5'].values,
+                    '20일선(장기)': processed_df['MA20'].values
                 }, index=processed_df.index.strftime('%Y-%m-%d'))
                 
                 X = processed_df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']]
@@ -344,10 +344,10 @@ if my_stock:
                             st.write(f"😐 **RSI 심리도:** 현재 RSI 지표는 **{latest_rsi:.1f}**로 안정적입니다.")
                     
                     with col2:
-                        st.subheader(f"📈 {current_stock_name} 통합 추이 그래프")
+                        # ⭐ [시각화 강화] 제목에 통화 단위(₩ 또는 $)를 직접 명시하여 직관성 확보
+                        st.subheader(f"📈 {current_stock_name} 통합 추이 그래프 (단위: {currency_symbol})")
                         st.line_chart(chart_df)
                         
-                        # 🌟 [요구사항 반영] 해외 주식일 때 그래프 밑에 실시간 환율 계산기 출력 🌟
                         if not is_korean_stock:
                             with st.spinner("실시간 원/달러 환율 정산 중..."):
                                 exchange_rate = get_current_usd_krw()
