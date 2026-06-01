@@ -7,8 +7,28 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 import numpy as np
 from datetime import datetime
+import urllib.parse
+import requests
 
-# --- 🔍 실시간 주식 이름 자동 조회 함수 ---
+# --- 🌐 [보안 에러 없는 무료 한글 번역 엔진] ---
+def translate_to_korean(text):
+    if not text:
+        return ""
+    try:
+        # 구글 번역 공식 무료 API 우회 파싱
+        base_url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q="
+        url = base_url + urllib.parse.quote(text)
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(url, headers=headers, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
+            return translated_text
+    except:
+        pass
+    return text # 번역 실패 시 영어 원문 그대로 반환 (안전장치)
+
+# --- 🔍 실시간 전세계 종목 이름 자동 조회 함수 ---
 def get_exact_stock_name(ticker_symbol):
     try:
         ticker_data = yf.Ticker(ticker_symbol)
@@ -18,7 +38,7 @@ def get_exact_stock_name(ticker_symbol):
     except:
         return ticker_symbol
 
-# --- 📰 [초경량+무적] 에러 없는 글로벌 실시간 뉴스 수집 엔진 ---
+# --- 📰 실시간 뉴스 수집 엔진 ---
 def get_stock_news_light(ticker_symbol):
     news_list = []
     try:
@@ -31,7 +51,7 @@ def get_stock_news_light(ticker_symbol):
                 pub_name = article.get('publisher') or article.get('content', {}).get('provider', {}).get('displayName') or '금융 리포트'
                 summary_text = article.get('summary') or article.get('content', {}).get('summary') or title
                 
-                # 규칙 기반 빠른 트렌드 요약 (서버가 다운되지 않는 초경량 방식)
+                # 규칙 기반 빠른 트렌드 요약
                 status = "😐 중립"
                 if any(w in title.lower() or w in summary_text.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '호재', '상승', '최고', '매수']):
                     status = "🟢 호재 (긍정)"
@@ -47,37 +67,42 @@ def get_stock_news_light(ticker_symbol):
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
-# 🌟 [즐겨찾기 완전 고정] 새로고침해도 내가 넣고 뺀 목록이 유지되도록 선언
+# 🌟 [즐겨찾기 저장소 완전 고정 락(Lock)] 🌟
 if "favorites" not in st.session_state:
     st.session_state.favorites = ["005930.KS", "TSLA", "NVDA"] 
 if "history" not in st.session_state:
     st.session_state.history = []
+if "current_input" not in st.session_state:
+    st.session_state.current_input = "005930.KS"
 
+# 사이드바 설정 영역
 st.sidebar.header("⚙️ 분석 설정")
 
 # --- ⭐ 즐겨찾는 종목 섹션 ---
 st.sidebar.subheader("⭐ 즐겨찾는 종목")
 if st.session_state.favorites:
     for fav in st.session_state.favorites:
+        # 즐겨찾기 버튼을 누르면 입력창 값이 해당 종목으로 실시간 강제 고정 및 갱신됨
         if st.sidebar.button(f"⭐ {fav}", key=f"fav_{fav}", use_container_width=True):
-            st.session_state.selected_stock = fav
+            st.session_state.current_input = fav
+            st.rerun()
 else:
-    st.sidebar.caption("즐겨찾기가 비어있습니다. 아래에서 추가해 보세요!")
+    st.sidebar.caption("즐겨찾기가 비어있습니다.")
 
-# 종목 코드 입력창 연동
-default_stock = st.session_state.get("selected_stock", "005930.KS")
-my_stock = st.sidebar.text_input("1. 종목 코드 입력", value=default_stock).upper().strip()
+# 종목 코드 입력창 (세션과 완전 동기화)
+my_stock = st.sidebar.text_input("1. 종목 코드 입력", value=st.session_state.current_input).upper().strip()
+st.session_state.current_input = my_stock # 입력할 때마다 실시간 백업
 
-# 🌟 즐겨찾기 추가/제거 버튼 완벽 동기화 구현
+# 🌟 즐겨찾기 추가/제거 버튼 완벽 실시간 동기화 🌟
 if my_stock in st.session_state.favorites:
     if st.sidebar.button("❌ 현재 종목 즐겨찾기에서 빼기", use_container_width=True):
         st.session_state.favorites.remove(my_stock)
-        st.rerun()
+        st.rerun() # 화면을 즉시 새로고침해서 반영
 else:
     if st.sidebar.button("➕ 현재 종목 즐겨찾기에 넣기", use_container_width=True):
-        if my_stock: # 빈칸이 아닐 때만 추가
+        if my_stock: 
             st.session_state.favorites.append(my_stock)
-            st.rerun()
+            st.rerun() # 화면을 즉시 새로고침해서 반영
 
 months_ago = st.sidebar.slider("2. 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
 
@@ -89,22 +114,19 @@ st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
         if st.sidebar.button(f"🕒 {hist}", key=f"hist_{hist}", use_container_width=True):
-            st.session_state.selected_stock = hist
+            st.session_state.current_input = hist
             st.rerun()
 
 # --- 🚀 메인 분석 가동부 ---
-if not run_button and "selected_stock" not in st.session_state:
+if not run_button and not st.session_state.history:
     st.info(f"💡 코드 입력창에 종목을 치거나, 즐겨찾기 단추를 누른 뒤 [종합 시장 분석 시작 🔥] 버튼을 눌러주세요!")
 else:
-    if "selected_stock" in st.session_state and not run_button:
-        my_stock = st.session_state.selected_stock
-        
-    if my_stock not in st.session_state.history and my_stock:
+    # 실행 버튼을 눌렀거나, 즐겨찾기/기록 클릭으로 자동 실행 유도할 때 히스토리 축적
+    if my_stock and (not st.session_state.history or st.session_state.history[0] != my_stock):
+        if my_stock in st.session_state.history:
+            st.session_state.history.remove(my_stock)
         st.session_state.history.insert(0, my_stock)
         st.session_state.history = st.session_state.history[:5]
-
-    if "selected_stock" in st.session_state:
-        del st.session_state.selected_stock
 
     with st.spinner("종목 정보를 실시간 조회 중..."):
         stock_display_name = get_exact_stock_name(my_stock)
@@ -119,7 +141,7 @@ else:
             data = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(data) < 30:
-                st.error("데이터가 부족합니다. 코드 뒤에 시장 식별자를 붙여주세요. (예: 삼성전자는 005930.KS / 카카오는 035720.KS)")
+                st.error("데이터가 부족합니다. 코드 뒤에 시장 식별자를 붙여주세요. (예: 삼성전자는 005930.KS / 엔비디아는 NVDA)")
             else:
                 data['MA5'] = data['Close'].rolling(window=5).mean()   
                 data['MA20'] = data['Close'].rolling(window=20).mean() 
@@ -175,8 +197,8 @@ else:
                     st.pyplot(fig)
                     
     with tab2:
-        st.subheader(f"📰 {stock_display_name} 관련 실시간 뉴스 핵심 요약")
-        with st.spinner("시장 뉴스를 실시간으로 안전하게 파싱 중입니다..."):
+        st.subheader(f"📰 {stock_display_name} 관련 실시간 뉴스 핵심 요약 (한글 번역)")
+        with st.spinner("시장 뉴스를 수집하고 실시간 한글로 번역하는 중입니다..."):
             news_data = get_stock_news_light(my_stock)
             
             if not news_data:
@@ -184,8 +206,12 @@ else:
             else:
                 for news in news_data:
                     with st.container():
-                        # 제목 링크 클릭 시 원문 이동 완벽 보장
-                        st.markdown(f"### [{news['status']}] [{news['title']}]({news['link']})")
-                        st.success(f"💬 **실시간 트렌드 요약본:** {news['summary']}")
-                        st.caption(f"🔗 *제공처:* {news['publisher']}")
+                        # 🌟 실시간 한글 번역 가동
+                        ko_title = translate_to_korean(news['title'])
+                        ko_summary = translate_to_korean(news['summary'])
+                        
+                        # 제목 링크 및 요약본 한글 표출
+                        st.markdown(f"### [{news['status']}] [{ko_title}]({news['link']})")
+                        st.success(f"💬 **실시간 한글 요약본:** {ko_summary}")
+                        st.caption(f"🔗 *제공처:* {news['publisher']} (원문 제목: {news['title']})")
                         st.markdown("---")
