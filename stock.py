@@ -116,94 +116,93 @@ if my_stock:
         end_date = datetime.today().strftime('%Y-%m-%d')
         start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
         
+        # 🌟 데이터 로딩 일수를 충분히 확보하여 리샘플링 버그 원천 차단
         raw_data = yf.download(my_stock, start=start_date, end=end_date)
         
         if len(raw_data) < 30:
             st.error("데이터가 부족하거나 종목 코드가 올바르지 않습니다.")
         else:
+            raw_data = raw_data.copy()
             if isinstance(raw_data.index, pd.MultiIndex):
                 raw_data.index = raw_data.index.get_level_values(0)
             raw_data.index = pd.to_datetime(raw_data.index)
             
-            # 주기에 따른 데이터 리샘플링 가공
-            if "주봉" in chart_period:
-                processed_data = raw_data.resample('W').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last', 'Volume':'sum'})
-            elif "월봉" in chart_period:
-                processed_data = raw_data.resample('ME').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last', 'Volume':'sum'})
-            else:
-                processed_data = raw_data.copy()
-                
-            processed_data = processed_data.dropna()
+            # 주기에 따른 데이터 가공 및 보조지표 선제 계산
+            raw_data['MA5'] = raw_data['Close'].rolling(window=5).mean()
+            raw_data['MA20'] = raw_data['Close'].rolling(window=20).mean()
             
-            # 🌟 [블로그 용어 적용] 기술적 보조지표 계산 연동
-            processed_data['5일선(MA5)'] = processed_data['Close'].rolling(window=5).mean()
-            processed_data['20일선(MA20)'] = processed_data['Close'].rolling(window=20).mean()
-            
-            delta = processed_data['Close'].diff()
+            delta = raw_data['Close'].diff()
             up, down = delta.clip(lower=0), -delta.clip(upper=0)
             ema_up = up.ewm(com=13, adjust=False).mean()
             ema_down = down.ewm(com=13, adjust=False).mean()
-            processed_data['RSI 지표'] = 100 - (100 / (1 + (ema_up / ema_down)))
+            raw_data['RSI'] = 100 - (100 / (1 + (ema_up / ema_down)))
             
-            # 차트용 데이터프레임 빌드 (절대 깨지지 않는 멀티 라인 구조)
+            # 🌟 [오류 해결의 핵심] 주기를 변환한 뒤 날짜 인덱스를 문자열형태의 칼럼으로 빼내어 차트 충돌 방지
+            if "주봉" in chart_period:
+                processed_data = raw_data.resample('W').last().dropna()
+            elif "월봉" in chart_period:
+                processed_data = raw_data.resample('ME').last().dropna()
+            else:
+                processed_data = raw_data.dropna()
+                
+            # 차트 표출용 뼈대 구축 (인덱스를 텍스트 날짜형태로 강제 고정)
             chart_df = pd.DataFrame({
-                '현재가 (Close)': processed_data['Close'],
-                '5일 이동평균선': processed_data['5일선(MA5)'],
-                '20일 이동평균선': processed_data['20일선(MA20)']
-            })
+                '현재가': processed_data['Close'].values,
+                '5일선(단기)': processed_data['MA5'].values,
+                '20일선(장기)': processed_data['MA20'].values
+            }, index=processed_data.index.strftime('%Y-%m-%d'))
             
-            # AI 예측 모델 빌드부
-            df_ml = processed_data.dropna().copy()
-            X = df_ml[['Close', 'Volume', '5일선(MA5)', '20일선(MA20)', 'RSI 지표']]
-            df_ml['Target'] = np.where(df_ml['Close'].shift(-1) > df_ml['Close'], 1, 0)
-            y = df_ml['Target']
+            # AI 머신러닝 학습부
+            X = processed_data[['Close', 'Volume', 'MA5', 'MA20', 'RSI']]
+            processed_data['Target'] = np.where(processed_data['Close'].shift(-1) > processed_data['Close'], 1, 0)
+            y = processed_data['Target']
             
-            X_today = X.iloc[[-1]]
-            X, y = X.iloc[:-1], y.iloc[:-1]
-            
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
-            ai_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
-            ai_model.fit(X_train, y_train)
-            accuracy = accuracy_score(y_test, ai_model.predict(X_test))
-            tomorrow_pred = ai_model.predict(X_today)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("🤖 AI 및 기술적 지표 보고서")
-                st.info(f"📊 종목명 : **{stock_display_name} ({my_stock})**")
-                st.caption(f"📅 조회 주기 : {chart_period}")
-                st.metric(label="🎯 AI 예측 정확도", value=f"{accuracy * 100:.2f}%")
+            if len(X) > 10:
+                X_today = X.iloc[[-1]]
+                X, y = X.iloc[:-1], y.iloc[:-1]
                 
-                if tomorrow_pred[0] == 1:
-                    st.success("🔮 AI 판단 : **[ 상승 예상 📈 ]** 다음 주기에는 주가가 오를 확률이 높습니다.")
-                else:
-                    st.error("🔮 AI 판단 : **[ 하락 예상 📉 ]** 다음 주기에는 주가가 떨어질 확률이 높습니다.")
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
+                ai_model = RandomForestClassifier(n_estimators=100, max_depth=5, random_state=42)
+                ai_model.fit(X_train, y_train)
+                accuracy = accuracy_score(y_test, ai_model.predict(X_test))
+                tomorrow_pred = ai_model.predict(X_today)
                 
-                # 🌟 [용어 해석 보고서 연동]
-                st.markdown("### 💡 보조지표 종합 진단")
-                latest_close = df_ml['Close'].iloc[-1]
-                latest_ma5 = df_ml['5일선(MA5)'].iloc[-1]
-                latest_ma20 = df_ml['20일선(MA20)'].iloc[-1]
-                latest_rsi = df_ml['RSI 지표'].iloc[-1]
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("🤖 AI 및 기술적 지표 보고서")
+                    st.info(f"📊 종목명 : **{stock_display_name} ({my_stock})**")
+                    st.caption(f"📅 조회 주기 : {chart_period}")
+                    st.metric(label="🎯 AI 예측 정확도", value=f"{accuracy * 100:.2f}%")
+                    
+                    if tomorrow_pred[0] == 1:
+                        st.success("🔮 AI 판단 : **[ 상승 예상 📈 ]** 다음 주기에는 주가가 오를 확률이 높습니다.")
+                    else:
+                        st.error("🔮 AI 판단 : **[ 하락 예상 📉 ]** 다음 주기에는 주가가 떨어질 확률이 높습니다.")
+                    
+                    # 보조지표 종합 진단 리포트
+                    st.markdown("### 💡 보조지표 종합 진단")
+                    latest_close = processed_data['Close'].iloc[-1]
+                    latest_ma5 = processed_data['MA5'].iloc[-1]
+                    latest_ma20 = processed_data['MA20'].iloc[-1]
+                    latest_rsi = processed_data['RSI'].iloc[-1]
+                    
+                    if latest_ma5 > latest_ma20:
+                        st.success(f"🟢 **이동평균선:** 현재 단기 이평선이 장기 이평선 위에 있는 **[골든크로스 / 정배열]** 상태입니다. 상승 탄력이 유효합니다.")
+                    else:
+                        st.error(f"🔴 **이동평균선:** 현재 단기 이평선이 장기 이평선 아래에 있는 **[데드크로스 / 역배열]** 상태입니다. 조정 가능성을 염두에 두어야 합니다.")
+                    
+                    if latest_rsi >= 70:
+                        st.warning(f"⚠️ **RSI 심리도:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매수 구간]**입니다. 단기적으로 차익실현 물량이 나올 수 있습니다.")
+                    elif latest_rsi <= 30:
+                        st.info(f"🔵 **RSI 심리도:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매도 구간]**입니다. 저점 매수세 유입 가능성이 높습니다.")
+                    else:
+                        st.write(f"😐 **RSI 심리도:** 현재 RSI 지표는 **{latest_rsi:.1f}**로 안정적인 흐름입니다.")
                 
-                # 1. 이동평균선 정배열 / 역배열 확인
-                if latest_ma5 > latest_ma20:
-                    st.success(f"🟢 **이동평균선 진단:** 현재 5일선({latest_ma5:,.0f})이 20일선({latest_ma20:,.0f}) 위에 있는 **[골든크로스 / 정배열]** 상태입니다. 단기 상승 추세가 강합니다.")
-                else:
-                    st.error(f"🔴 **이동평균선 진단:** 현재 5일선({latest_ma5:,.0f})이 20일선({latest_ma20:,.0f}) 아래에 있는 **[데드크로스 / 역배열]** 상태입니다. 신중한 접근이 필요합니다.")
-                
-                # 2. RSI 심리 지표 분석
-                if latest_rsi >= 70:
-                    st.warning(f"⚠️ **RSI 과열도 진단:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매수 구간(70 이상)]**에 진입했습니다. 시장 심리가 지나치게 과열되어 있으니 과도한 추격 매수는 자제하고 단기 매도를 검토할 타이밍입니다.")
-                elif latest_rsi <= 30:
-                    st.info(f"🔵 **RSI 과열도 진단:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매도 구간(30 이하)]**에 진입했습니다. 매도세가 과도하여 바닥권일 확률이 높으며, 단기 기술적 반등 및 분할 매수 진입을 고려해볼 수 있습니다.")
-                else:
-                    st.write(f"😐 **RSI 과열도 진단:** 현재 RSI 지표는 **{latest_rsi:.1f}**로 심리적 과열이나 공포 없이 안정적인 박스권 흐름을 유지하고 있습니다.")
-            
-            with col2:
-                st.subheader(f"📈 {stock_display_name} 통합 추이 그래프")
-                # 🌟 일/주/월봉을 눌러도 보조지표선이 절대 깨지지 않고 겹쳐 나오는 멀티 차트 가동
-                st.line_chart(chart_df)
+                with col2:
+                    st.subheader(f"📈 {stock_display_name} 통합 추이 그래프")
+                    st.line_chart(chart_df)
+            else:
+                st.warning("선택한 기간 내에 데이터가 너무 적어 분석을 진행할 수 없습니다. 학습 기간 설정을 늘려주세요.")
                 
     with tab2:
         st.subheader(f"📰 {stock_display_name} 관련 실시간 속보 피드")
