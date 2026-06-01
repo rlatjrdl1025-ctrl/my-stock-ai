@@ -10,31 +10,54 @@ from datetime import datetime
 import urllib.parse
 import requests
 
-# --- 🌐 [보안 에러 없는 무료 한글 번역 엔진] ---
+# --- 딕셔너리로 주요 한국 종목 한글 이름 강제 매핑 (안전장치) ---
+KOREAN_STOCK_MAP = {
+    "005930.KS": "삼성전자",
+    "035720.KS": "카카오",
+    "005380.KS": "현대차",
+    "000660.KS": "SK하이닉스",
+    "035420.KS": "NAVER",
+    "005490.KS": "POSCO홀딩스",
+    "207940.KS": "삼성바이오로직스",
+    "051910.KS": "LG화학",
+    "000270.KS": "기아",
+    "068270.KS": "셀트리온"
+}
+
+# --- 🌐 무료 한글 번역 엔진 ---
 def translate_to_korean(text):
     if not text:
         return ""
     try:
-        # 구글 번역 공식 무료 API 우회 파싱
         base_url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q="
         url = base_url + urllib.parse.quote(text)
         headers = {"User-Agent": "Mozilla/5.0"}
         response = requests.get(url, headers=headers, timeout=5)
         if response.status_code == 200:
             result = response.json()
-            translated_text = "".join([sentence[0] for sentence in result[0] if sentence[0]])
-            return translated_text
+            return "".join([sentence[0] for sentence in result[0] if sentence[0]])
     except:
         pass
-    return text # 번역 실패 시 영어 원문 그대로 반환 (안전장치)
+    return text
 
-# --- 🔍 실시간 전세계 종목 이름 자동 조회 함수 ---
+# --- 🔍 [기능 개선] 실시간 종목 한글 이름 자동 조회 및 번역 함수 ---
 def get_exact_stock_name(ticker_symbol):
+    # 1. 자주 쓰는 한국 종목은 매핑 테이블에서 즉시 조회
+    if ticker_symbol in KOREAN_STOCK_MAP:
+        return KOREAN_STOCK_MAP[ticker_symbol]
+        
     try:
         ticker_data = yf.Ticker(ticker_symbol)
         info = ticker_data.info
-        long_name = info.get('longName') or info.get('shortName') or ticker_symbol
-        return long_name
+        eng_name = info.get('longName') or info.get('shortName') or ticker_symbol
+        
+        # 2. 미국 주식 등 해외 종목 이름이 영어로 나오면 한글로 번역 (예: NVIDIA Corp -> 엔비디아 주식회사)
+        if ticker_symbol.endswith('.KS') or ticker_symbol.endswith('.KQ'):
+            # 한국 주식인데 영문으로 나오는 경우 뒤의 'Co., Ltd.' 등을 떼고 번역 시도
+            eng_name = eng_name.split('Co')[0].strip()
+            
+        ko_name = translate_to_korean(eng_name)
+        return ko_name
     except:
         return ticker_symbol
 
@@ -45,13 +68,12 @@ def get_stock_news_light(ticker_symbol):
         ticker_data = yf.Ticker(ticker_symbol)
         yahoo_news = ticker_data.news
         if yahoo_news:
-            for article in yahoo_news[:4]: # 최신 뉴스 4개 수집
+            for article in yahoo_news[:4]:
                 title = article.get('title') or article.get('content', {}).get('title') or '실시간 시장 속보'
                 link = article.get('link') or article.get('content', {}).get('clickThroughUrl') or '#'
                 pub_name = article.get('publisher') or article.get('content', {}).get('provider', {}).get('displayName') or '금융 리포트'
                 summary_text = article.get('summary') or article.get('content', {}).get('summary') or title
                 
-                # 규칙 기반 빠른 트렌드 요약
                 status = "😐 중립"
                 if any(w in title.lower() or w in summary_text.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '호재', '상승', '최고', '매수']):
                     status = "🟢 호재 (긍정)"
@@ -67,7 +89,6 @@ def get_stock_news_light(ticker_symbol):
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
-# 🌟 [즐겨찾기 저장소 완전 고정 락(Lock)] 🌟
 if "favorites" not in st.session_state:
     st.session_state.favorites = ["005930.KS", "TSLA", "NVDA"] 
 if "history" not in st.session_state:
@@ -75,36 +96,35 @@ if "history" not in st.session_state:
 if "current_input" not in st.session_state:
     st.session_state.current_input = "005930.KS"
 
-# 사이드바 설정 영역
 st.sidebar.header("⚙️ 분석 설정")
 
 # --- ⭐ 즐겨찾는 종목 섹션 ---
 st.sidebar.subheader("⭐ 즐겨찾는 종목")
 if st.session_state.favorites:
     for fav in st.session_state.favorites:
-        # 즐겨찾기 버튼을 누르면 입력창 값이 해당 종목으로 실시간 강제 고정 및 갱신됨
         if st.sidebar.button(f"⭐ {fav}", key=f"fav_{fav}", use_container_width=True):
             st.session_state.current_input = fav
             st.rerun()
-else:
-    st.sidebar.caption("즐겨찾기가 비어있습니다.")
 
-# 종목 코드 입력창 (세션과 완전 동기화)
 my_stock = st.sidebar.text_input("1. 종목 코드 입력", value=st.session_state.current_input).upper().strip()
-st.session_state.current_input = my_stock # 입력할 때마다 실시간 백업
+st.session_state.current_input = my_stock 
 
-# 🌟 즐겨찾기 추가/제거 버튼 완벽 실시간 동기화 🌟
 if my_stock in st.session_state.favorites:
     if st.sidebar.button("❌ 현재 종목 즐겨찾기에서 빼기", use_container_width=True):
         st.session_state.favorites.remove(my_stock)
-        st.rerun() # 화면을 즉시 새로고침해서 반영
+        st.rerun()
 else:
     if st.sidebar.button("➕ 현재 종목 즐겨찾기에 넣기", use_container_width=True):
         if my_stock: 
             st.session_state.favorites.append(my_stock)
-            st.rerun() # 화면을 즉시 새로고침해서 반영
+            st.rerun()
 
-months_ago = st.sidebar.slider("2. 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
+# 🌟 [기능 추가] 차트 주기 선택 (일봉, 주봉, 월봉)
+st.sidebar.markdown("---")
+st.sidebar.subheader("📅 차트 보기 설정")
+chart_period = st.sidebar.radio("조회할 차트 단위를 선택하세요", ["일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)"])
+
+months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
 
 st.sidebar.markdown("---")
 run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container_width=True)
@@ -121,14 +141,13 @@ if st.session_state.history:
 if not run_button and not st.session_state.history:
     st.info(f"💡 코드 입력창에 종목을 치거나, 즐겨찾기 단추를 누른 뒤 [종합 시장 분석 시작 🔥] 버튼을 눌러주세요!")
 else:
-    # 실행 버튼을 눌렀거나, 즐겨찾기/기록 클릭으로 자동 실행 유도할 때 히스토리 축적
     if my_stock and (not st.session_state.history or st.session_state.history[0] != my_stock):
         if my_stock in st.session_state.history:
             st.session_state.history.remove(my_stock)
         st.session_state.history.insert(0, my_stock)
         st.session_state.history = st.session_state.history[:5]
 
-    with st.spinner("종목 정보를 실시간 조회 중..."):
+    with st.spinner("종목 한글 이름을 실시간 매핑 중..."):
         stock_display_name = get_exact_stock_name(my_stock)
     
     tab1, tab2 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스 요약"])
@@ -138,11 +157,20 @@ else:
             end_date = datetime.today().strftime('%Y-%m-%d')
             start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
             
-            data = yf.download(my_stock, start=start_date, end=end_date)
+            # 야후 파이낸스에서 기본 데이터 다운로드
+            raw_data = yf.download(my_stock, start=start_date, end=end_date)
             
-            if len(data) < 30:
-                st.error("데이터가 부족합니다. 코드 뒤에 시장 식별자를 붙여주세요. (예: 삼성전자는 005930.KS / 엔비디아는 NVDA)")
+            if len(raw_data) < 30:
+                st.error("데이터가 부족합니다. 코드를 확인해 주세요. (예: 삼성전자는 005930.KS / 테슬라는 TSLA)")
             else:
+                # 🌟 라디오 버튼 선택에 따라 데이터 리샘플링 (일봉/주봉/월봉 전환)
+                if "주봉" in chart_period:
+                    data = raw_data.resample('W').last()
+                elif "월봉" in chart_period:
+                    data = raw_data.resample('M').last()
+                else:
+                    data = raw_data.copy()
+                    
                 data['MA5'] = data['Close'].rolling(window=5).mean()   
                 data['MA20'] = data['Close'].rolling(window=20).mean() 
                 
@@ -174,24 +202,23 @@ else:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.subheader("🤖 AI 분석 보고서")
+                    # 🌟 화면에 한글 이름과 코드가 나란히 이쁘게 출력됨
                     st.info(f"📈 분석 대상 종목 : **{stock_display_name} ({my_stock})**")
-                    st.caption(f"📅 분석 기간 : {start_date} ~ {end_date}")
+                    st.caption(f"📅 분석 기간 : {start_date} ~ {end_date} ({chart_period} 기준)")
                     st.metric(label="🎯 업그레이드 AI 정확도", value=f"{accuracy * 100:.2f}%")
                     
                     tomorrow_pred = ai_model.predict(X_today)
-                    current_rsi = df['RSI'].iloc[-1]
-                    
                     if tomorrow_pred[0] == 1:
-                        st.success(f"🔮 AI 최종 판단 : **[ 상승 예상 📈 ]** 내일 {stock_display_name} 주가는 오를 확률이 높습니다.")
+                        st.success(f"🔮 AI 최종 판단 : **[ 상승 예상 📈 ]** 다음 주기는 주가가 오를 확률이 높습니다.")
                     else:
-                        st.error(f"🔮 AI 최종 판단 : **[ 하락 예상 📉 ]** 내일 {stock_display_name} 주가는 떨어질 확률이 높습니다.")
+                        st.error(f"🔮 AI 최종 판단 : **[ 하락 예상 📉 ]** 다음 주기는 주가가 떨어질 확률이 높습니다.")
                 
                 with col2:
-                    st.subheader(f"📈 {stock_display_name} 차트 흐름")
+                    st.subheader(f"📈 {stock_display_name} [{chart_period}] 흐름")
                     fig, ax = plt.subplots(figsize=(10, 5))
-                    ax.plot(data['Close'], label='Price', color='blue')
-                    ax.plot(data['MA5'], label='5-Day Line', color='green', linestyle=':')
-                    ax.plot(data['MA20'], label='20-Day Line', color='orange', linestyle='--')
+                    ax.plot(data['Close'], label='Price', color='blue', linewidth=2)
+                    ax.plot(data['MA5'], label='5-Period Line', color='green', linestyle=':')
+                    ax.plot(data['MA20'], label='20-Period Line', color='orange', linestyle='--')
                     ax.legend()
                     ax.grid(True, alpha=0.3)
                     st.pyplot(fig)
@@ -206,11 +233,9 @@ else:
             else:
                 for news in news_data:
                     with st.container():
-                        # 🌟 실시간 한글 번역 가동
                         ko_title = translate_to_korean(news['title'])
                         ko_summary = translate_to_korean(news['summary'])
                         
-                        # 제목 링크 및 요약본 한글 표출
                         st.markdown(f"### [{news['status']}] [{ko_title}]({news['link']})")
                         st.success(f"💬 **실시간 한글 요약본:** {ko_summary}")
                         st.caption(f"🔗 *제공처:* {news['publisher']} (원문 제목: {news['title']})")
