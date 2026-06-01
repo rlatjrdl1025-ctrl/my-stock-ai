@@ -23,7 +23,7 @@ def get_exact_stock_name(ticker_symbol):
     except:
         return ticker_symbol
 
-# --- 📰 실시간 뉴스 수집 엔진 (에러 차단 버전) ---
+# --- 📰 실시간 뉴스 수집 엔진 ---
 def get_stock_news_safe(ticker_symbol):
     news_list = []
     try:
@@ -59,7 +59,7 @@ if "history" not in st.session_state:
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# [즐겨찾기 목록] 버튼 클릭 시 해당 종목을 입력창 기본값으로 전달
+# [즐겨찾기 목록] 
 st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
 selected_from_fav = None
 if st.session_state.favorites:
@@ -77,7 +77,7 @@ if selected_from_fav:
 else:
     my_stock = st.sidebar.text_input("1. 종목 코드 입력", value="005930.KS").upper().strip()
 
-# 🌟 [요구사항 반영] 즐겨찾기 추가/제거 체크박스 제어 시스템 🌟
+# 즐겨찾기 체크박스 제어
 is_fav = my_stock in st.session_state.favorites
 fav_check = st.sidebar.checkbox("⭐ 이 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
 
@@ -106,8 +106,6 @@ st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
         st.sidebar.caption(f"🕒 {hist}")
-else:
-    st.sidebar.caption("기록 없음")
 
 # --- 🚀 메인 작동부 ---
 if my_stock:
@@ -120,38 +118,45 @@ if my_stock:
         
         raw_data = yf.download(my_stock, start=start_date, end=end_date)
         
-        if len(raw_data) < 15:
+        if len(raw_data) < 30:
             st.error("데이터가 부족하거나 종목 코드가 올바르지 않습니다.")
         else:
-            # MultiIndex 데이터 정제 및 동기화 안전장치
             if isinstance(raw_data.index, pd.MultiIndex):
                 raw_data.index = raw_data.index.get_level_values(0)
             raw_data.index = pd.to_datetime(raw_data.index)
             
-            # 🌟 [차트 깨짐 방지] st.line_chart 전용 리샘플링 데이터 구축
+            # 주기에 따른 데이터 리샘플링 가공
             if "주봉" in chart_period:
-                chart_data = raw_data['Close'].resample('W').last()
+                processed_data = raw_data.resample('W').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last', 'Volume':'sum'})
             elif "월봉" in chart_period:
-                chart_data = raw_data['Close'].resample('ME').last()
+                processed_data = raw_data.resample('ME').agg({'Open':'first', 'High':'max', 'Low':'min', 'Close':'last', 'Volume':'sum'})
             else:
-                chart_data = raw_data['Close'].copy()
+                processed_data = raw_data.copy()
                 
-            chart_df = pd.DataFrame(chart_data)
-            chart_df.columns = ['종가 (Close)']
+            processed_data = processed_data.dropna()
             
-            # AI 머신러닝 학습 알고리즘용 데이터 가공
-            raw_data['MA5'] = raw_data['Close'].rolling(window=5).mean()
-            raw_data['MA20'] = raw_data['Close'].rolling(window=20).mean()
-            delta = raw_data['Close'].diff()
+            # 🌟 [블로그 용어 적용] 기술적 보조지표 계산 연동
+            processed_data['5일선(MA5)'] = processed_data['Close'].rolling(window=5).mean()
+            processed_data['20일선(MA20)'] = processed_data['Close'].rolling(window=20).mean()
+            
+            delta = processed_data['Close'].diff()
             up, down = delta.clip(lower=0), -delta.clip(upper=0)
             ema_up = up.ewm(com=13, adjust=False).mean()
             ema_down = down.ewm(com=13, adjust=False).mean()
-            raw_data['RSI'] = 100 - (100 / (1 + (ema_up / ema_down)))
+            processed_data['RSI 지표'] = 100 - (100 / (1 + (ema_up / ema_down)))
             
-            df = raw_data.dropna().copy()
-            X = df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']]
-            df['Target'] = np.where(df['Close'].shift(-1) > df['Close'], 1, 0)
-            y = df['Target']
+            # 차트용 데이터프레임 빌드 (절대 깨지지 않는 멀티 라인 구조)
+            chart_df = pd.DataFrame({
+                '현재가 (Close)': processed_data['Close'],
+                '5일 이동평균선': processed_data['5일선(MA5)'],
+                '20일 이동평균선': processed_data['20일선(MA20)']
+            })
+            
+            # AI 예측 모델 빌드부
+            df_ml = processed_data.dropna().copy()
+            X = df_ml[['Close', 'Volume', '5일선(MA5)', '20일선(MA20)', 'RSI 지표']]
+            df_ml['Target'] = np.where(df_ml['Close'].shift(-1) > df_ml['Close'], 1, 0)
+            y = df_ml['Target']
             
             X_today = X.iloc[[-1]]
             X, y = X.iloc[:-1], y.iloc[:-1]
@@ -164,19 +169,40 @@ if my_stock:
             
             col1, col2 = st.columns(2)
             with col1:
-                st.subheader("🤖 AI 분석 보고서")
+                st.subheader("🤖 AI 및 기술적 지표 보고서")
                 st.info(f"📊 종목명 : **{stock_display_name} ({my_stock})**")
-                st.caption(f"📅 주기 : {chart_period}")
+                st.caption(f"📅 조회 주기 : {chart_period}")
                 st.metric(label="🎯 AI 예측 정확도", value=f"{accuracy * 100:.2f}%")
                 
                 if tomorrow_pred[0] == 1:
-                    st.success("🔮 AI 판단 : **[ 상승 예상 📈 ]** 내일은 주가가 오를 확률이 높습니다.")
+                    st.success("🔮 AI 판단 : **[ 상승 예상 📈 ]** 다음 주기에는 주가가 오를 확률이 높습니다.")
                 else:
-                    st.error("🔮 AI 판단 : **[ 하락 예상 📉 ]** 내일은 주가가 떨어질 확률이 높습니다.")
+                    st.error("🔮 AI 판단 : **[ 하락 예상 📉 ]** 다음 주기에는 주가가 떨어질 확률이 높습니다.")
+                
+                # 🌟 [용어 해석 보고서 연동]
+                st.markdown("### 💡 보조지표 종합 진단")
+                latest_close = df_ml['Close'].iloc[-1]
+                latest_ma5 = df_ml['5일선(MA5)'].iloc[-1]
+                latest_ma20 = df_ml['20일선(MA20)'].iloc[-1]
+                latest_rsi = df_ml['RSI 지표'].iloc[-1]
+                
+                # 1. 이동평균선 정배열 / 역배열 확인
+                if latest_ma5 > latest_ma20:
+                    st.success(f"🟢 **이동평균선 진단:** 현재 5일선({latest_ma5:,.0f})이 20일선({latest_ma20:,.0f}) 위에 있는 **[골든크로스 / 정배열]** 상태입니다. 단기 상승 추세가 강합니다.")
+                else:
+                    st.error(f"🔴 **이동평균선 진단:** 현재 5일선({latest_ma5:,.0f})이 20일선({latest_ma20:,.0f}) 아래에 있는 **[데드크로스 / 역배열]** 상태입니다. 신중한 접근이 필요합니다.")
+                
+                # 2. RSI 심리 지표 분석
+                if latest_rsi >= 70:
+                    st.warning(f"⚠️ **RSI 과열도 진단:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매수 구간(70 이상)]**에 진입했습니다. 시장 심리가 지나치게 과열되어 있으니 과도한 추격 매수는 자제하고 단기 매도를 검토할 타이밍입니다.")
+                elif latest_rsi <= 30:
+                    st.info(f"🔵 **RSI 과열도 진단:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매도 구간(30 이하)]**에 진입했습니다. 매도세가 과도하여 바닥권일 확률이 높으며, 단기 기술적 반등 및 분할 매수 진입을 고려해볼 수 있습니다.")
+                else:
+                    st.write(f"😐 **RSI 과열도 진단:** 현재 RSI 지표는 **{latest_rsi:.1f}**로 심리적 과열이나 공포 없이 안정적인 박스권 흐름을 유지하고 있습니다.")
             
             with col2:
-                st.subheader(f"📈 {stock_display_name} 주가 추이 그래프")
-                # 🌟 에러가 절대 나지 않는 스트리밀릿 표준 라인 차트 구현
+                st.subheader(f"📈 {stock_display_name} 통합 추이 그래프")
+                # 🌟 일/주/월봉을 눌러도 보조지표선이 절대 깨지지 않고 겹쳐 나오는 멀티 차트 가동
                 st.line_chart(chart_df)
                 
     with tab2:
