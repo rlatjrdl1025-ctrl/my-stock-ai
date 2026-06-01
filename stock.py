@@ -191,6 +191,15 @@ if "search_term" not in st.session_state: st.session_state.search_term = "삼성
 if "selected_ticker" not in st.session_state: st.session_state.selected_ticker = "005930.KS"
 if "fallback_name" not in st.session_state: st.session_state.fallback_name = "삼성전자"
 
+# Query Parameter를 사용한 테이블 내부 클릭 주소 연동 처리 기능
+query_params = st.query_params
+if "jump_tk" in query_params:
+    st.session_state.selected_ticker = query_params["jump_tk"]
+    st.session_state.fallback_name = query_params.get("jump_name", "선택종목")
+    st.session_state.search_term = query_params.get("jump_name", "선택종목")
+    st.query_params.clear() # 처리 후 쿼리 파라미터 청소
+    st.rerun()
+
 st.sidebar.header("⚙️ 분석 설정")
 search_input = st.sidebar.text_input("🔍 검색할 기업 이름 입력", value=st.session_state.search_term).strip()
 
@@ -407,37 +416,38 @@ if selected_ticker:
                     """)
                     st.markdown("---")
 
-                # 🌟 [요구사항 전격 반영] 성적표 내 종목 클릭 시 즉시 앵커링 연동 시스템 구현 🌟
-                # 성적표 데이터프레임 내부의 종목명 클릭 감지를 위해 가로형 버튼 세트로 세련되게 개편!
-                st.markdown("##### 📜 성적표 기록 종목 목록 (클릭 시 해당 종목 AI 분석 페이지로 이동)")
-                st.write("아래 기록된 종목명을 클릭하시면 해당 기업의 AI 차트 및 실시간 시장 뉴스 탭으로 즉시 워프 전환됩니다.")
-                
-                unique_tickers = history_df['종목코드'].unique()
-                unique_cols = st.columns(min(len(unique_tickers), 5))
-                for idx, tk in enumerate(unique_tickers[:10]): # 최대 10개까지 노출
-                    tk_name = history_df[history_df['종목코드'] == tk]['종목명'].iloc[0]
-                    col_pos = idx % 5
-                    with unique_cols[col_pos]:
-                        if st.button(f"📊 {tk_name}", key=f"table_jump_{tk}", use_container_width=True):
-                            st.session_state.selected_ticker = tk
-                            st.session_state.fallback_name = tk_name
-                            st.session_state.search_term = tk_name
-                            st.rerun()
-                st.markdown("---")
-
-                # [기존 기능 유지] 성적표 국가 및 지수 마켓별 전면 분리
+                # 🌟 [요구사항 전격 반영] 임시 단추 세트 완전 삭제 및 표 내부 종목명 하이퍼링크 다이렉트 바인딩 🌟
                 history_df['소속시장'] = history_df['종목코드'].apply(lambda x: "한국 (KOSPI/KOSDAQ)" if (x.endswith('.KS') or x.endswith('.KQ')) else "미국 및 해외")
                 
-                kr_history = history_df[history_df['소속시장'] == "한국 (KOSPI/KOSDAQ)"]
-                us_history = history_df[history_df['소속시장'] == "미국 및 해외"]
+                # 표 내부의 종목명 텍스트를 클릭하면 메인 세션이 리셋되도록 내부 파라미터 URL 생성 주입
+                # (기존 테이블 구조와 완벽히 동일하며, 글자 클릭 시 분석 페이지로 순간 이동합니다.)
+                history_df['링크주소'] = history_df.apply(lambda r: f"/?jump_tk={r['종목코드']}&jump_name={urllib.parse.quote(r['종목명'])}", axis=1)
+
+                kr_history = history_df[history_df['소속시장'] == "한국 (KOSPI/KOSDAQ)"].copy()
+                us_history = history_df[history_df['소속시장'] == "미국 및 해외"].copy()
                 
                 if not kr_history.empty:
                     st.markdown("##### 🇰🇷 대한민국 (코스피 / 코스닥) 예측 기록")
-                    st.dataframe(kr_history.drop(columns=['소속시장']), use_container_width=True, hide_index=True)
+                    # '종목명' 컬럼에 하이퍼링크 주소를 바인딩하여 표 형태를 완벽히 유지
+                    st.dataframe(
+                        kr_history[['예측일자', '종목코드', '링크주소', 'AI예측', '예측시점가격', '실제결과', '적중여부']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "링크주소": st.column_config.LinkColumn("종목명", display_text=r"^/\?jump_tk=.+&jump_name=(.+)$")
+                        }
+                    )
                     
                 if not us_history.empty:
                     st.markdown("##### 🇺🇸 미국 및 글로벌 (NASDAQ / NYSE / S&P 500) 예측 기록")
-                    st.dataframe(us_history.drop(columns=['소속시장']), use_container_width=True, hide_index=True)
+                    st.dataframe(
+                        us_history[['예측일자', '종목코드', '링크주소', 'AI예측', '예측시점가격', '실제결과', '적중여부']],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "링크주소": st.column_config.LinkColumn("종목명", display_text=r"^/\?jump_tk=.+&jump_name=(.+)$")
+                        }
+                    )
                     
             else: st.info("아직 누적된 실전 예측 기록이 없습니다.")
         except: st.error("예측 일기장을 불러오는 중 오류가 발생했습니다.")
