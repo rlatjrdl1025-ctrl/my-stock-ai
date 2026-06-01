@@ -43,13 +43,13 @@ def get_related_stock_list(search_keyword):
         
     # 숫자 6자리 코드 직접 입력 시 예외 처리
     if search_keyword.isdigit() and len(search_keyword) == 6:
-        return [{"symbol": search_keyword + ".KS", "shortname": "국내 코스피 종목"}]
+        return [{"symbol": search_keyword + ".KS", "shortname": "국내 주식 코드 입력"}]
         
     clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").replace(" ", "")
     
     stock_options = []
     try:
-        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(clean_keyword)}&quotesCount=7"
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(clean_keyword)}&quotesCount=10"
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
         res = requests.get(url, headers=headers, timeout=5)
         if res.status_code == 200:
@@ -134,78 +134,86 @@ def update_prediction_results():
         return df.sort_index(ascending=False)
     except: return pd.DataFrame()
 
-# --- 🖥️ 대시보드 구조 동기화 연동부 ---
+# --- 🖥️ 메모리 동기화 및 세션 관리 ---
 if "favorites_dict" not in st.session_state:
     st.session_state.favorites_dict = {"005930.KS": "삼성전자", "TSLA": "테슬라", "NVDA": "엔비디아"}
 if "history" not in st.session_state: st.session_state.history = []
 if "input_query" not in st.session_state: st.session_state.input_query = "삼성"
+if "final_confirmed_ticker" not in st.session_state: st.session_state.final_confirmed_ticker = "005930.KS"
 
-# --- 사이드바 영역 구성 ---
+# --- 사이드바 레이아웃 ---
 st.sidebar.header("⚙️ 분석 설정")
 
 # 1. 기업 이름 검색창
 search_input = st.sidebar.text_input("1. 검색할 기업 이름 입력", value=st.session_state.input_query).strip()
-st.session_state.input_query = search_input
 
-# 🌟 실시간 연관 검색 목록 긁어오기
+# 검색어가 달라지면 세션 갱신
+if search_input != st.session_state.input_query:
+    st.session_state.input_query = search_input
+    st.rerun()
+
+# 실시간 연관 검색 목록 추출
 related_stocks = get_related_stock_list(search_input)
 
-my_stock = None
+# 연관 종목 라디오 버튼 생성 (안전장치 적용)
 if related_stocks:
     st.sidebar.markdown("🔍 **연관 검색 결과 목록**")
     options_format = [f"{s['shortname']} ({s['symbol']})" for s in related_stocks]
     selected_option = st.sidebar.radio("원하시는 종목을 선택해 주세요:", options_format)
-    my_stock = selected_option.split("(")[-1].replace(")", "").strip()
+    target_ticker = selected_option.split("(")[-1].replace(")", "").strip()
 else:
-    st.sidebar.warning("연관 종목이 없습니다. 다시 입력해 주세요.")
-    my_stock = "005930.KS"
-
-# 즐겨찾기 체크박스 관리
-is_fav = my_stock in st.session_state.favorites_dict
-fav_check = st.sidebar.checkbox("⭐ 현재 선택 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{my_stock}")
-
-if fav_check and not is_fav:
-    raw_name = get_exact_stock_name(my_stock)
-    st.session_state.favorites_dict[my_stock] = translate_text(raw_name, target_lang="ko")
-    st.rerun()
-elif not fav_check and is_fav:
-    del st.session_state.favorites_dict[my_stock]
-    st.rerun()
-
-# 즐겨찾기 리스트 버튼 표출
-st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
-if st.session_state.favorites_dict:
-    for code, name in st.session_state.favorites_dict.items():
-        if st.sidebar.button(f"📌 {name} ({code})", key=f"fav_{code}", use_container_width=True):
-            st.session_state.input_query = name
-            st.rerun()
+    st.sidebar.caption("💡 검색어를 입력하시면 연관 종목이 정렬됩니다.")
+    target_ticker = "005930.KS"
 
 st.sidebar.markdown("---")
 chart_period = st.sidebar.radio("📅 차트 보기 설정", ["일봉 (Daily)", "주봉 (Weekly)", "월봉 (Monthly)"])
 months_ago = st.sidebar.slider("2. AI 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
 st.sidebar.markdown("---")
+
+# 🌟 최종 확인 실행 버튼
 run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container_width=True)
 
-# 최근 검색 기록 목록 관리
+if run_button:
+    st.session_state.final_confirmed_ticker = target_ticker
+    if target_ticker not in st.session_state.history:
+        st.session_state.history.insert(0, target_ticker)
+        st.session_state.history = st.session_state.history[:5]
+    st.rerun()
+
+# 즐겨찾기 제어 (최종 확정된 종목 기준)
+active_ticker = st.session_state.final_confirmed_ticker
+is_fav = active_ticker in st.session_state.favorites_dict
+fav_check = st.sidebar.checkbox("⭐ 현재 분석 종목 즐겨찾기 등록", value=is_fav, key=f"chk_{active_ticker}")
+
+if fav_check and not is_fav:
+    raw_name = get_exact_stock_name(active_ticker)
+    st.session_state.favorites_dict[active_ticker] = translate_text(raw_name, target_lang="ko")
+    st.rerun()
+elif not fav_check and is_fav:
+    del st.session_state.favorites_dict[active_ticker]
+    st.rerun()
+
+# 즐겨찾기 및 히스토리 UI 표출
+st.sidebar.subheader("⭐ 내 즐겨찾기 목록")
+if st.session_state.favorites_dict:
+    for code, name in st.session_state.favorites_dict.items():
+        if st.sidebar.button(f"📌 {name} ({code})", key=f"fav_{code}", use_container_width=True):
+            st.session_state.input_query = name
+            st.session_state.final_confirmed_ticker = code
+            st.rerun()
+
 st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
         if st.sidebar.button(f"🕒 {hist}", key=f"hist_{hist}", use_container_width=True):
-            st.session_state.input_query = hist
+            st.session_state.final_confirmed_ticker = hist
             st.rerun()
 
-if run_button and my_stock:
-    if my_stock not in st.session_state.history:
-        st.session_state.history.insert(0, my_stock)
-        st.session_state.history = st.session_state.history[:5]
-    st.rerun()
-
-# --- 🚀 메인 차트 및 리포트 가동부 ---
-if my_stock:
-    raw_stock_name = get_exact_stock_name(my_stock)
+# --- 🚀 메인 메커니즘 가동부 ---
+if active_ticker:
+    raw_stock_name = get_exact_stock_name(active_ticker)
     current_stock_name = translate_text(raw_stock_name, target_lang="ko")
-    is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
-    currency_symbol = "₩" if is_korean_stock else "$"
+    is_korean_stock = active_ticker.endswith('.KS') or active_ticker.endswith('.KQ')
     
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
@@ -213,10 +221,10 @@ if my_stock:
         with st.spinner("데이터 수집 및 인공지능 학습 중..."):
             end_date = datetime.today().strftime('%Y-%m-%d')
             start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
-            df_raw = yf.download(my_stock, start=start_date, end=end_date)
+            df_raw = yf.download(active_ticker, start=start_date, end=end_date)
             
             if len(df_raw) < 20:
-                st.error("데이터가 부족하거나 일시적 통신 오류입니다. 다른 종목을 선택해 주세요.")
+                st.error("종목 데이터를 불러오는 중 일시적인 지연이 발생했습니다. '분석 시작' 버튼을 다시 한 번 눌러주세요.")
             else:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
@@ -245,12 +253,12 @@ if my_stock:
                     col1, col2 = st.columns(2)
                     with col1:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
-                        st.info(f"📊 분석 대상 : **{current_stock_name} ({my_stock})**")
+                        st.info(f"📊 분석 대상 : **{current_stock_name} ({active_ticker})**")
                         st.metric(label="🎯 AI 내부 검증 정확도", value=f"{accuracy * 100:.2f}%")
                         pred_txt = "상승 예상 📈" if tomorrow_pred[0] == 1 else "하락 예상 📉"
                         if tomorrow_pred[0] == 1: st.success(f"🔮 AI 판단 : **[ {pred_txt} ]** 주가가 오를 확률이 높습니다.")
                         else: st.error(f"🔮 AI 판단 : **[ {pred_txt} ]** 주가가 떨어질 확률이 높습니다.")
-                        save_prediction(my_stock, current_stock_name, pred_txt, latest_close)
+                        save_prediction(active_ticker, current_stock_name, pred_txt, latest_close)
                         
                         st.markdown("### 💡 보조지표 종합 진단")
                         latest_ma5 = processed_df['MA5'].iloc[-1]
@@ -290,7 +298,7 @@ if my_stock:
                     
     with tab2:
         st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드")
-        news_data = get_stock_news_safe(my_stock)
+        news_data = get_stock_news_safe(active_ticker)
         if news_data:
             for news in news_data:
                 with st.container():
