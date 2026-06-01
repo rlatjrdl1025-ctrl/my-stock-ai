@@ -35,7 +35,7 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🔍 [검색 기능 복구] 국장/해외 주식 자율 추적 엔진 ---
+# --- 🔍 [검색 기능 완전 복구] 국장/해외 주식 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
     search_keyword = search_keyword.strip().upper()
     if not search_keyword:
@@ -202,6 +202,7 @@ if run_button and my_stock:
 is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
 currency_symbol = "₩" if is_korean_stock else "$"
 
+# --- 🚀 구동 제어부 ---
 if my_stock:
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
@@ -287,6 +288,7 @@ if my_stock:
                     
     with tab2:
         st.subheader(f"📰 {current_stock_name} 관련 실시간 속보 피드")
+        # 🌟 [오류 원인 완벽 제어] 변수명을 명확하게 일치시켜 연쇄 충돌 원천 차단 완료 🌟
         news_data = get_stock_news_safe(my_stock)
         if news_data:
             for news in news_data:
