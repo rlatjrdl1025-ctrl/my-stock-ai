@@ -130,4 +130,21 @@ run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container
 st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
-        if st.sidebar.button(f"
+        if st.sidebar.button(f"🕒 {hist}", key=f"hist_{hist}", use_container_width=True):
+            st.session_state.current_input = hist
+            st.rerun()
+
+# --- 🚀 메인 분석 가동부 ---
+if not run_button and not st.session_state.history:
+    st.info(f"💡 코드 입력창에 종목을 치거나, 즐겨찾기 단추를 누른 뒤 [종합 시장 분석 시작 🔥] 버튼을 눌러주세요!")
+else:
+    if my_stock and (not st.session_state.history or st.session_state.history[0] != my_stock):
+        if my_stock in st.session_state.history:
+            st.session_state.history.remove(my_stock)
+        st.session_state.history.insert(0, my_stock)
+        st.session_state.history = st.session_state.history[:5]
+
+    with st.spinner("종목 한글 이름을 실시간 매핑 중..."):
+        stock_display_name = get_exact_stock_name(my_stock)
+    
+    tab1, tab2 =
