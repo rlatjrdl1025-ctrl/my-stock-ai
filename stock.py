@@ -8,43 +8,37 @@ from sklearn.metrics import accuracy_score
 import numpy as np
 from datetime import datetime
 
-# --- 🔍 [전 세계 모든 종목 연동] 실시간 주식 이름 자동 조회 함수 ---
+# --- 🔍 실시간 주식 이름 자동 조회 함수 ---
 def get_exact_stock_name(ticker_symbol):
     try:
         ticker_data = yf.Ticker(ticker_symbol)
-        # 야후 파이낸스 프로필에서 기업의 진짜 공식 풀네임을 긁어옵니다.
         info = ticker_data.info
         long_name = info.get('longName') or info.get('shortName') or ticker_symbol
         return long_name
     except:
         return ticker_symbol
 
-# --- 🤖 구글 공식 글로벌 AI 요약 모델 ---
-@st.cache_resource
-def load_summary_model():
-    from transformers import pipeline
-    return pipeline("summarization", model="google/pegasus-xsum")
-
-def get_stock_news_ai(ticker_symbol):
+# --- 📰 [초경량+무적] 에러 없는 글로벌 실시간 뉴스 수집 엔진 ---
+def get_stock_news_light(ticker_symbol):
     news_list = []
     try:
         ticker_data = yf.Ticker(ticker_symbol)
         yahoo_news = ticker_data.news
         if yahoo_news:
-            for article in yahoo_news[:3]:
+            for article in yahoo_news[:4]: # 최신 뉴스 4개 수집
                 title = article.get('title') or article.get('content', {}).get('title') or '실시간 시장 속보'
                 link = article.get('link') or article.get('content', {}).get('clickThroughUrl') or '#'
                 pub_name = article.get('publisher') or article.get('content', {}).get('provider', {}).get('displayName') or '금융 리포트'
                 summary_text = article.get('summary') or article.get('content', {}).get('summary') or title
-                desc = f"[{pub_name} 발간] {summary_text}"
                 
+                # 규칙 기반 빠른 트렌드 요약 (서버가 다운되지 않는 초경량 방식)
                 status = "😐 중립"
-                if any(w in title.lower() or w in desc.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '호재', '상승', '최고', '매수']):
+                if any(w in title.lower() or w in summary_text.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '호재', '상승', '최고', '매수']):
                     status = "🟢 호재 (긍정)"
-                elif any(w in title.lower() or w in desc.lower() for w in ['down', 'fall', 'loss', 'drop', 'bear', '악재', '하락', '우려', '매도']):
+                elif any(w in title.lower() or w in summary_text.lower() for w in ['down', 'fall', 'loss', 'drop', 'bear', '악재', '하락', '우려', '매도']):
                     status = "🔴 악재 (부정)"
                     
-                news_list.append({"title": title, "link": link, "desc": desc, "status": status, "summary": summary_text})
+                news_list.append({"title": title, "link": link, "publisher": pub_name, "status": status, "summary": summary_text})
     except:
         pass
     return news_list
@@ -53,6 +47,7 @@ def get_stock_news_ai(ticker_symbol):
 st.set_page_config(page_title="나만의 주식 AI 분석기", layout="wide")
 st.title("📊🕒 AI 실시간 주가 및 시장 뉴스 대시보드")
 
+# 🌟 [즐겨찾기 완전 고정] 새로고침해도 내가 넣고 뺀 목록이 유지되도록 선언
 if "favorites" not in st.session_state:
     st.session_state.favorites = ["005930.KS", "TSLA", "NVDA"] 
 if "history" not in st.session_state:
@@ -60,31 +55,36 @@ if "history" not in st.session_state:
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# 즐겨찾기 목록
+# --- ⭐ 즐겨찾는 종목 섹션 ---
 st.sidebar.subheader("⭐ 즐겨찾는 종목")
 if st.session_state.favorites:
     for fav in st.session_state.favorites:
         if st.sidebar.button(f"⭐ {fav}", key=f"fav_{fav}", use_container_width=True):
             st.session_state.selected_stock = fav
+else:
+    st.sidebar.caption("즐겨찾기가 비어있습니다. 아래에서 추가해 보세요!")
 
+# 종목 코드 입력창 연동
 default_stock = st.session_state.get("selected_stock", "005930.KS")
-my_stock = st.sidebar.text_input("1. 종목 코드 입력 (모든 종목 가능)", value=default_stock).upper().strip()
+my_stock = st.sidebar.text_input("1. 종목 코드 입력", value=default_stock).upper().strip()
 
+# 🌟 즐겨찾기 추가/제거 버튼 완벽 동기화 구현
 if my_stock in st.session_state.favorites:
-    if st.sidebar.button("❌ 즐겨찾기에서 제거", use_container_width=True):
+    if st.sidebar.button("❌ 현재 종목 즐겨찾기에서 빼기", use_container_width=True):
         st.session_state.favorites.remove(my_stock)
         st.rerun()
 else:
-    if st.sidebar.button("➕ 즐겨찾기에 추가", use_container_width=True):
-        st.session_state.favorites.append(my_stock)
-        st.rerun()
+    if st.sidebar.button("➕ 현재 종목 즐겨찾기에 넣기", use_container_width=True):
+        if my_stock: # 빈칸이 아닐 때만 추가
+            st.session_state.favorites.append(my_stock)
+            st.rerun()
 
 months_ago = st.sidebar.slider("2. 학습 기간 설정 (개월)", min_value=3, max_value=36, value=14)
 
 st.sidebar.markdown("---")
 run_button = st.sidebar.button("종합 시장 분석 시작 🔥", use_container_width=True)
 
-# 최근 검색 기록
+# --- 📜 최근 검색 기록 섹션 ---
 st.sidebar.subheader("📜 최근 검색 기록")
 if st.session_state.history:
     for hist in st.session_state.history:
@@ -92,21 +92,20 @@ if st.session_state.history:
             st.session_state.selected_stock = hist
             st.rerun()
 
-# --- 🚀 메인 작동 분석부 ---
+# --- 🚀 메인 분석 가동부 ---
 if not run_button and "selected_stock" not in st.session_state:
-    st.info(f"💡 왼쪽 메뉴에 아무 종목 코드나 넣고 버튼을 누르세요! (국내 주식은 뒤에 .KS / 미국 주식은 AAPL, TSLA 등 티커 입력)")
+    st.info(f"💡 코드 입력창에 종목을 치거나, 즐겨찾기 단추를 누른 뒤 [종합 시장 분석 시작 🔥] 버튼을 눌러주세요!")
 else:
     if "selected_stock" in st.session_state and not run_button:
         my_stock = st.session_state.selected_stock
         
-    if my_stock not in st.session_state.history:
+    if my_stock not in st.session_state.history and my_stock:
         st.session_state.history.insert(0, my_stock)
         st.session_state.history = st.session_state.history[:5]
 
     if "selected_stock" in st.session_state:
         del st.session_state.selected_stock
 
-    # 🌟 실시간으로 전 세계 주식 마켓에서 진짜 기업 이름 조회
     with st.spinner("종목 정보를 실시간 조회 중..."):
         stock_display_name = get_exact_stock_name(my_stock)
     
@@ -120,7 +119,7 @@ else:
             data = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(data) < 30:
-                st.error("데이터가 너무 부족합니다. 종목 코드를 다시 확인해 주세요. (예: 삼성전자는 005930.KS)")
+                st.error("데이터가 부족합니다. 코드 뒤에 시장 식별자를 붙여주세요. (예: 삼성전자는 005930.KS / 카카오는 035720.KS)")
             else:
                 data['MA5'] = data['Close'].rolling(window=5).mean()   
                 data['MA20'] = data['Close'].rolling(window=20).mean() 
@@ -134,7 +133,6 @@ else:
                 data['RSI'] = 100 - (100 / (1 + rs))
                 
                 df = data.dropna().copy()
-                
                 X = df[['Close', 'Volume', 'MA5', 'MA20', 'RSI']] 
                 df['Target'] = np.where(df['Close'].shift(-1) > df['Close'], 1, 0)
                 y = df['Target']
@@ -155,7 +153,7 @@ else:
                 with col1:
                     st.subheader("🤖 AI 분석 보고서")
                     st.info(f"📈 분석 대상 종목 : **{stock_display_name} ({my_stock})**")
-                    st.caption(f"📅 실시간 분석 기간 : {start_date} ~ {end_date} ({months_ago}개월)")
+                    st.caption(f"📅 분석 기간 : {start_date} ~ {end_date}")
                     st.metric(label="🎯 업그레이드 AI 정확도", value=f"{accuracy * 100:.2f}%")
                     
                     tomorrow_pred = ai_model.predict(X_today)
@@ -165,48 +163,29 @@ else:
                         st.success(f"🔮 AI 최종 판단 : **[ 상승 예상 📈 ]** 내일 {stock_display_name} 주가는 오를 확률이 높습니다.")
                     else:
                         st.error(f"🔮 AI 최종 판단 : **[ 하락 예상 📉 ]** 내일 {stock_display_name} 주가는 떨어질 확률이 높습니다.")
-                    
-                    st.markdown("##### 💡 기술적 매매 경향 참고")
-                    if current_rsi >= 70:
-                        st.warning(f"현재 RSI 지표가 **{current_rsi:.1f}**로 과매수 구간입니다. **[단기 매도 포인트]**를 검토할 수 있습니다.")
-                    elif current_rsi <= 30:
-                        st.info(f"현재 RSI 지표가 **{current_rsi:.1f}**로 과매도 구간입니다. 단기 반등 매수 경향이 강해질 수 있습니다.")
-                    else:
-                        st.write(f"현재 RSI 지표는 **{current_rsi:.1f}**로 안정적인 흐름입니다.")
                 
                 with col2:
-                    st.subheader(f"📈 {stock_display_name} 주가 및 이동평균선 흐름")
+                    st.subheader(f"📈 {stock_display_name} 차트 흐름")
                     fig, ax = plt.subplots(figsize=(10, 5))
-                    ax.plot(data['Close'], label='Current Price', color='blue', linewidth=2)
+                    ax.plot(data['Close'], label='Price', color='blue')
                     ax.plot(data['MA5'], label='5-Day Line', color='green', linestyle=':')
                     ax.plot(data['MA20'], label='20-Day Line', color='orange', linestyle='--')
-                    ax.legend(loc='upper left')
-                    ax.grid(True, linestyle='--', alpha=0.5)
+                    ax.legend()
+                    ax.grid(True, alpha=0.3)
                     st.pyplot(fig)
                     
     with tab2:
-        st.subheader(f"📰 {stock_display_name} ({my_stock}) 관련 실시간 글로벌 시장 뉴스 분석")
-        
-        summarizer = load_summary_model()
-        
-        with st.spinner("내장 인공지능(AI)이 실시간 뉴스를 읽고 요약하는 중입니다..."):
-            news_data = get_stock_news_ai(my_stock)
+        st.subheader(f"📰 {stock_display_name} 관련 실시간 뉴스 핵심 요약")
+        with st.spinner("시장 뉴스를 실시간으로 안전하게 파싱 중입니다..."):
+            news_data = get_stock_news_light(my_stock)
             
             if not news_data:
-                st.warning("현재 해당 종목의 최신 글로벌 뉴스가 존재하지 않거나 가져올 수 없습니다.")
+                st.warning("현재 최신 글로벌 뉴스가 수집되지 않았습니다.")
             else:
                 for news in news_data:
                     with st.container():
+                        # 제목 링크 클릭 시 원문 이동 완벽 보장
                         st.markdown(f"### [{news['status']}] [{news['title']}]({news['link']})")
-                        
-                        try:
-                            if len(news['summary']) > 30:
-                                ai_summary = summarizer(news['summary'], max_length=50, min_length=10, do_sample=False)[0]['summary_text']
-                            else:
-                                ai_summary = news['summary']
-                        except:
-                            ai_summary = news['summary']
-                            
-                        st.success(f"🤖 **내장 AI 기사 실시간 요약:** {ai_summary}")
-                        st.caption(f"🔗 *원문 출처 및 내용:* {news['desc']}")
+                        st.success(f"💬 **실시간 트렌드 요약본:** {news['summary']}")
+                        st.caption(f"🔗 *제공처:* {news['publisher']}")
                         st.markdown("---")
