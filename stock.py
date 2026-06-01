@@ -172,7 +172,11 @@ def update_prediction_results():
                         actual_dir = "상승 📈" if next_close > prev_close else "하락 📉"
                         is_correct = "⭕ 적중" if row['AI예측'].split()[0] == actual_dir.split()[0] else "❌ 실패"
                         
-                        df.at[idx, '실제결과'] = f"{next_close:,.2f} ({actual_dir})"
+                        # 성적표 내부 금액 포맷팅 (원화/달러 구분 적용)
+                        is_ko = ticker.endswith('.KS') or ticker.endswith('.KQ')
+                        fmt = f"₩{next_close:,.0f}" if is_ko else f"${next_close:,.2f}"
+                        
+                        df.at[idx, '실제결과'] = f"{fmt} ({actual_dir})"
                         df.at[idx, '적중여부'] = is_correct
                         updated = True
         if updated:
@@ -286,7 +290,6 @@ if my_stock:
                 else:
                     processed_df = df_flat.copy()
                 
-                # ⭐ [구조 통일] 차트 컬럼명을 '현재가'로 완전히 고정하여 중복 표기 원천 차단
                 chart_df = pd.DataFrame({
                     '현재가': processed_df['Close'].values,
                     '5일선(단기)': processed_df['MA5'].values,
@@ -326,15 +329,26 @@ if my_stock:
                         
                         save_prediction(my_stock, current_stock_name, pred_txt, latest_close)
                         
+                        # 🌟 [요구사항 반영] 텍스트 정보창 금액들에 기호 및 콤마(,) 세팅 🌟
                         st.markdown("### 💡 보조지표 종합 진단")
                         latest_ma5 = processed_df['MA5'].iloc[-1]
                         latest_ma20 = processed_df['MA20'].iloc[-1]
                         latest_rsi = processed_df['RSI'].iloc[-1]
                         
-                        if latest_ma5 > latest_ma20:
-                            st.success(f"🟢 **이동평균선:** 현재 단기 이평선이 장기 이평선 위에 있는 **[골든크로스 / 정배열]** 상태입니다.")
+                        # 국내 주식(소수점 제거 정수), 해외 주식(소수점 2자리 표기) 포맷 분리
+                        if is_korean_stock:
+                            fmt_close = f"{currency_symbol}{latest_close:,.0f}"
+                            fmt_ma5 = f"{currency_symbol}{latest_ma5:,.0f}"
+                            fmt_ma20 = f"{currency_symbol}{latest_ma20:,.0f}"
                         else:
-                            st.error(f"🔴 **이동평균선:** 현재 단기 이평선이 장기 이평선 아래에 있는 **[데드크로스 / 역배열]** 상태입니다.")
+                            fmt_close = f"{currency_symbol}{latest_close:,.2f}"
+                            fmt_ma5 = f"{currency_symbol}{latest_ma5:,.2f}"
+                            fmt_ma20 = f"{currency_symbol}{latest_ma20:,.2f}"
+                        
+                        if latest_ma5 > latest_ma20:
+                            st.success(f"🟢 **이동평균선:** 현재 단기 이평선({fmt_ma5})이 장기 이평선({fmt_ma20}) 위에 있는 **[골든크로스 / 정배열]** 상태입니다. (현재가: {fmt_close})")
+                        else:
+                            st.error(f"🔴 **이동평균선:** 현재 단기 이평선({fmt_ma5})이 장기 이평선({fmt_ma20}) 아래에 있는 **[데드크로스 / 역배열]** 상태입니다. (현재가: {fmt_close})")
                         
                         if latest_rsi >= 70:
                             st.warning(f"⚠️ **RSI 심리도:** 현재 RSI가 **{latest_rsi:.1f}**로 **[과매수 과열 상태]**입니다.")
@@ -344,7 +358,6 @@ if my_stock:
                             st.write(f"😐 **RSI 심리도:** 현재 RSI 지표는 **{latest_rsi:.1f}**로 안정적입니다.")
                     
                     with col2:
-                        # ⭐ [시각화 강화] 제목에 통화 단위(₩ 또는 $)를 직접 명시하여 직관성 확보
                         st.subheader(f"📈 {current_stock_name} 통합 추이 그래프 (단위: {currency_symbol})")
                         st.line_chart(chart_df)
                         
@@ -356,12 +369,12 @@ if my_stock:
                             > **💱 실시간 해외 자산 원화 환산 계산기**
                             > * **현재 주가:** {currency_symbol}{latest_close:,.2f}
                             > * **적용 환율:** 1달러($) = **{exchange_rate:,.2f}원**
-                            > * **🔥 실시간 원화 환산 금액:** 약 **{converted_price:,.0f}원**
+                            > * **🔥 실시간 원화 환산 금액:** 약 **₩{converted_price:,.0f}**
                             """)
                         else:
                             st.markdown(f"""
                             > **💰 국내 자산 정산 안내**
-                            > * **현재 주가:** {currency_symbol}{latest_close:,.0f}원 (대한민국 원화 기준)
+                            > * **현재 주가:** ₩{latest_close:,.0f} (대한민국 원화 기준)
                             """)
                 else:
                     st.warning("데이터가 부족하여 분석을 진행할 수 없습니다.")
