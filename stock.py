@@ -35,7 +35,7 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🔍 [안전장치 탑재] 국장/해외 주식 100% 자율 추적 엔진 ---
+# --- 🔍 [검색 기능 복구] 국장/해외 주식 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
     search_keyword = search_keyword.strip().upper()
     if not search_keyword:
@@ -65,55 +65,22 @@ def search_ticker_by_name(search_keyword):
         pass
     return search_keyword
 
-# --- 🏛️ [기능 추가] 종목 코드를 기반으로 국가 및 소속 시장을 정밀 판별하는 함수 ---
+# --- 🏛️ 국가 및 상장 마켓(코스피, 코스닥, 나스닥, S&P500) 정밀 분류기 ---
 def detect_market_info(ticker_symbol, info_data):
     ticker_symbol = ticker_symbol.upper()
     
-    # 1. 한국 시장 판별
     if ticker_symbol.endswith('.KS'):
         return "대한민국 🇰🇷", "KOSPI (코스피)"
     elif ticker_symbol.endswith('.KQ'):
         return "대한민국 🇰🇷", "KOSDAQ (코스닥)"
         
-    # 2. 미국 시장 판별 (야후 파이낸스 내부 정보 매핑)
     exchange = info_data.get('exchange', '').upper()
     if 'NASDAQ' in exchange or 'NGM' in exchange or 'NMS' in exchange:
         return "미국 🇺🇸", "NASDAQ (나스닥)"
     elif 'NYQ' in exchange or 'NYSE' in exchange:
-        # S&P 500 소속 여부 간이 체크 또는 대형주 마켓 분류
         return "미국 🇺🇸", "NYSE / S&P 500"
         
-    return "글ローバル 마켓 🌐", "해외 주요 증시"
-
-def get_exact_stock_info(ticker_symbol):
-    try:
-        ticker_data = yf.Ticker(ticker_symbol)
-        return ticker_data.info
-    except:
-        return {}
-
-def get_stock_news_safe(ticker_symbol):
-    news_list = []
-    try:
-        ticker_data = yf.Ticker(ticker_symbol)
-        yahoo_news = ticker_data.news
-        if yahoo_news:
-            for article in yahoo_news[:4]:
-                title = article.get('title') or article.get('content', {}).get('title') or '실시간 속보'
-                link = article.get('link') or article.get('content', {}).get('clickThroughUrl') or '#'
-                pub_name = article.get('publisher') or article.get('content', {}).get('provider', {}).get('displayName') or '금융 채널'
-                summary_text = article.get('summary') or article.get('content', {}).get('summary') or title
-                
-                status = "😐 중립"
-                if any(w in title.lower() for w in ['up', 'growth', 'gain', 'rise', 'bull', '상승', '호재']):
-                    status = "🟢 호재"
-                elif any(w in title.lower() for w in ['down', 'fall', 'loss', 'drop', 'bear', '하락', '악재']):
-                    status = "🔴 악재"
-                    
-                news_list.append({"title": title, "link": link, "publisher": pub_name, "status": status, "summary": summary_text})
-    except:
-        pass
-    return news_list
+    return "글로벌 마켓 🌐", "해외 주요 증시"
 
 # --- 💾 AI 예측 기록 저장 및 결과 정산 시스템 ---
 HISTORY_FILE = "predict_history.csv"
@@ -130,7 +97,7 @@ def save_prediction(ticker, name, pred_text, current_price):
             if not ((df['예측일자'] == today_str) & (df['종목코드'] == ticker)).any():
                 pd.concat([df, new_data], ignore_index=True).to_csv(HISTORY_FILE, index=False)
         except:
-            new_data.to_csv(HISTORY_FILE, index=False)
+            pass
     else:
         new_data.to_csv(HISTORY_FILE, index=False)
 
@@ -175,19 +142,25 @@ if "input_query" not in st.session_state: st.session_state.input_query = "삼성
 
 st.sidebar.header("⚙️ 분석 설정")
 
-# 자율 입력창
+# 자율 검색창
 search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
 with st.spinner("AI 실시간 검색 엔진 구동 중..."):
     my_stock = search_ticker_by_name(search_input)
 
-# 거래소 정보 동기화 가동
-info_data = get_exact_stock_info(my_stock)
+# 메인 데이터 호출 및 정보 수집
+info_data = {}
+try:
+    ticker_obj = yf.Ticker(my_stock)
+    info_data = ticker_obj.info
+except:
+    pass
+
 raw_stock_name = info_data.get('longName') or info_data.get('shortName') or my_stock
 current_stock_name = translate_text(raw_stock_name, target_lang="ko")
 
-# 국가 및 마켓 자동 분류 락온 🌟
+# 국가 및 마켓 자동 식별 분류
 country, market_name = detect_market_info(my_stock, info_data)
 
 is_fav = my_stock in st.session_state.favorites_dict
@@ -233,14 +206,12 @@ if my_stock:
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
     
     with tab1:
-        with st.spinner("데이터 수집 및 인공지능 학습 중..."):
-            end_date = datetime.today().strftime('%Y-%m-%d')
-            start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
-            df_raw = yf.download(my_stock, start=start_date, end=end_date)
-            
-            if len(df_raw) < 20:
-                st.error("종목 데이터를 가져오지 못했습니다. 이름이나 코드를 다시 확인해 주세요.")
-            else:
+        end_date = datetime.today().strftime('%Y-%m-%d')
+        start_date = (datetime.today() - pd.DateOffset(months=months_ago)).strftime('%Y-%m-%d')
+        
+        try:
+            df_raw = yf.download(my_stock, start=start_date, end=end_date, progress=False)
+            if len(df_raw) >= 20:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
                 df_flat.index = pd.to_datetime(df_flat.index)
@@ -270,7 +241,7 @@ if my_stock:
                         st.subheader("🤖 AI 및 기술적 지표 보고서")
                         st.info(f"📊 분석 대상 : **{current_stock_name} ({my_stock})**")
                         
-                        # 🌟 [요구사항 반영] 국가 및 거래소 명확한 마크다운 표출 영역
+                        # 국가 및 소속 거래소 마켓 분류 정밀 정보창
                         st.markdown(f"""
                         * **소속 국가 :** {country}
                         * **상장 시장 :** **{market_name}**
@@ -290,12 +261,12 @@ if my_stock:
                         else: st.error(f"🔴 **이동평균선:** 역배열 데드크로스 압력이 있습니다. (현재가: {fmt_close})")
                     
                     with col2:
-                        # 🌟 [요구사항 반영] 직관적인 바 차트(Bar Chart)로 전면 교체
+                        # 직관적인 주가 변동 막대 바 차트(Bar Chart) 연동
                         st.subheader(f"📊 {current_stock_name} 가격 변동 바 차트")
                         chart_df = pd.DataFrame({
                             '종가 시세': np.round(processed_df['Close']) if is_korean_stock else np.round(processed_df['Close'], 2)
                         }, index=processed_df.index.strftime('%Y-%m-%d'))
-                        st.bar_chart(chart_df) # 한눈에 들어오는 바 차트 적용
+                        st.bar_chart(chart_df)
                         
                         if is_korean_stock:
                             st.markdown(f"""> **💰 국내 자산 정산 안내:** 현재 종가는 **₩{latest_close:,.0f}** 입니다.""")
@@ -309,6 +280,8 @@ if my_stock:
                             """)
                 else:
                     st.warning("데이터가 부족합니다.")
+            else:
+                st.warning("데이터가 부족합니다.")
         except:
             st.error("해당 종목의 마켓 데이터를 가져오는 데 실패했습니다.")
                     
