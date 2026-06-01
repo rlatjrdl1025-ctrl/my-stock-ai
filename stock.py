@@ -10,7 +10,7 @@ import urllib.parse
 import requests
 import os
 
-# --- 🌐 백ends 실시간 한글 번역 엔진 ---
+# --- 🌐 백엔드 실시간 한글 번역 엔진 ---
 def translate_text(text, target_lang="en"):
     if not text:
         return ""
@@ -35,56 +35,62 @@ def get_current_usd_krw():
     except:
         return 1350.0
 
-# --- 🔍 [완전 자동화] 전 세계 모든 종목 자율 추적 엔진 ---
+# --- 🔍 [완벽 구현] 이름 또는 코드 입력 시 100% 자율 추적 엔진 ---
 def search_ticker_by_name(search_keyword):
-    search_keyword = search_keyword.strip()
+    search_keyword = search_keyword.strip().upper()
     if not search_keyword:
         return "005930.KS"
+        
+    # 1. 사용자가 숫자 6자리만 입력했을 경우 (예: 005930 ➡️ 코스피/코스닥 자율 매핑)
+    if search_keyword.isdigit() and len(search_keyword) == 6:
+        # 코스피인지 코스닥인지 야후 파이낸스에 찔러보고 확인
+        for suffix in ['.KS', '.KQ']:
+            test_ticker = search_keyword + suffix
+            try:
+                t = yf.Ticker(test_ticker)
+                if t.history(period="1d").shape[0] > 0:
+                    return test_ticker
+            except:
+                pass
+        return search_keyword + '.KS'
+        
+    # 2. 이미 완벽한 티커 형태인 경우 (.KS, .KQ가 붙었거나 미국 알파벳 티커)
     if search_keyword.replace('.', '').isalnum() and not any(ord(c) >= 12593 for c in search_keyword):
-        return search_keyword.upper()
-    KOREAN_SHORT_MAP = {
-        "LG": "003550.KS", "엘지": "003550.KS", "삼성전자": "005930.KS", 
-        "카카오": "035720.KS", "현대차": "005380.KS", "SK하이닉스": "000660.KS"
-    }
+        return search_keyword
+        
+    # '주식회사', '(주)' 등 불필요한 단어 제거 정제
     clean_keyword = search_keyword.replace("주식회사", "").replace("(주)", "").replace(" ", "")
-    if clean_keyword.upper() in KOREAN_SHORT_MAP:
-        return KOREAN_SHORT_MAP[clean_keyword.upper()]
+    
+    # 3. 🌟 야후 파이낸스 글로벌 다이렉트 자율 매핑 파이프라인 가동
     try:
-        ticker = fetch_yahoo_search(clean_keyword)
-        if ticker: return ticker
-    except: pass
-    try:
-        english_keyword = translate_text(clean_keyword, target_lang="en")
-        ticker = fetch_yahoo_search(english_keyword)
-        if ticker: return ticker
-    except: pass
-    return search_keyword.upper()
-
-def fetch_yahoo_search(query_text):
-    url = f"https://query1.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(query_text)}&quotesCount=10"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    res = requests.get(url, headers=headers, timeout=5)
-    if res.status_code == 200:
-        data = res.json()
-        quotes = data.get('quotes', [])
-        if quotes:
-            for q in quotes:
-                symbol = q.get('symbol', '')
-                if symbol.endswith('.KS') or symbol.endswith('.KQ'): return symbol
-            return quotes[0]['symbol']
-    return None
+        # 한국어 명칭 검색 최적화 주소 세팅
+        url = f"https://query2.finance.yahoo.com/v1/finance/search?q={urllib.parse.quote(clean_keyword)}&quotesCount=10"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            data = res.json()
+            quotes = data.get('quotes', [])
+            if quotes:
+                # 한글로 검색했을 때는 무조건 한국 국장 종목(.KS 또는 .KQ)을 최우선으로 낚아챔 🎯
+                for q in quotes:
+                    symbol = q.get('symbol', '')
+                    if symbol.endswith('.KS') or symbol.endswith('.KQ'):
+                        return symbol
+                # 국장 종목이 아니라면 가장 연관성 높은 글로벌 미국 티커 반환
+                return quotes[0]['symbol']
+    except:
+        pass
+        
+    return search_keyword
 
 def get_exact_stock_name(ticker_symbol):
-    KOREAN_STOCK_MAP = {
-        "003550.KS": "LG", "005930.KS": "삼성전자", "035720.KS": "카카오", 
-        "005380.KS": "현대차", "000660.KS": "SK하이닉스"
-    }
-    if ticker_symbol in KOREAN_STOCK_MAP: return KOREAN_STOCK_MAP[ticker_symbol]
     try:
         ticker_data = yf.Ticker(ticker_symbol)
         info = ticker_data.info
-        return info.get('longName') or info.get('shortName') or ticker_symbol
-    except: return ticker_symbol
+        name = info.get('longName') or info.get('shortName') or ticker_symbol
+        return name
+    except:
+        return ticker_symbol
 
 def get_stock_news_safe(ticker_symbol):
     news_list = []
@@ -157,7 +163,7 @@ if "history" not in st.session_state: st.session_state.history = []
 if "input_query" not in st.session_state: st.session_state.input_query = "삼성전자"
 
 st.sidebar.header("⚙️ 분석 설정")
-search_input = st.sidebar.text_input("1. 종목 이름 입력 (국내/해외 무제한 검색)", value=st.session_state.input_query).strip()
+search_input = st.sidebar.text_input("1. 종목 이름 또는 코드 입력", value=st.session_state.input_query).strip()
 st.session_state.input_query = search_input
 
 with st.spinner("AI 실시간 글로벌 검색 엔진 가동 중..."):
@@ -202,6 +208,7 @@ if run_button and my_stock:
     st.rerun()
 
 is_korean_stock = my_stock.endswith('.KS') or my_stock.endswith('.KQ')
+currency_symbol = "₩" if is_korean_stock else "$"
 
 if my_stock:
     tab1, tab2, tab3 = st.tabs(["📈 AI 주가 예측 및 차트", "📰 실시간 시장 뉴스", "🎯 AI 예측 성적표"])
@@ -213,7 +220,7 @@ if my_stock:
             df_raw = yf.download(my_stock, start=start_date, end=end_date)
             
             if len(df_raw) < 20:
-                st.error("종목 데이터를 가져오지 못했습니다. 이름을 정확하게 입력해 주세요.")
+                st.error("종목 데이터를 가져오지 못했습니다. 이름이나 코드를 다시 확인해 주세요.")
             else:
                 df_raw.columns = df_raw.columns.get_level_values(0)
                 df_flat = pd.DataFrame(df_raw.values, columns=df_raw.columns, index=df_raw.index)
@@ -257,7 +264,6 @@ if my_stock:
                         else: st.error(f"🔴 **이동평균선:** 현재 데드크로스 / 역배열 상태입니다. (현재가: {fmt_close})")
                     
                     with col2:
-                        # 🌟 [가독성 개선] 추가 설치 없는 안전한 화폐/콤마 분리 차트 구현
                         if is_korean_stock:
                             st.subheader(f"📈 {current_stock_name} 주가 추이 그래프 (단위: ₩)")
                             chart_df = pd.DataFrame({
@@ -269,8 +275,6 @@ if my_stock:
                             st.markdown(f"""> **💰 국내 자산 정산 안내:** 현재 종가는 **₩{latest_close:,.0f}** 입니다.""")
                         else:
                             ex_rate = get_current_usd_krw()
-                            
-                            # 달러와 원화를 한 번에 교차로 확인할 수 있도록 상/하 레이아웃 쪼개서 분리 출력!
                             st.subheader(f"📈 {current_stock_name} 주가 추이 그래프 (단위: $)")
                             chart_df_usd = pd.DataFrame({
                                 '현재가(달러)': np.round(processed_df['Close'], 2),
